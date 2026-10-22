@@ -1608,7 +1608,7 @@ function renderCard() {
     '<p id="c-place">' + esc(place) + '</p></div><button type="button" class="btn ghost x" data-act="card-close" aria-label="카드 닫기">닫기</button></div>' +
     '<p>' + esc(status) + '</p>' +
     '<div class="card-btns"><button type="button" class="btn" data-act="card-rec">' + (n ? '또 다녀왔어요!' : '스티커 붙이기!') + '</button>' +
-    (n ? '<button type="button" class="btn ghost" data-act="card-view">기록 보기</button>' : '') + mapLinks(p) + '</div>';
+    (n ? '<button type="button" class="btn ghost" data-act="card-view">기록 보기</button>' : '') + '</div>';
   el.hidden = false;
 }
 function toKorea() { map.fitBounds([[33.0, 124.8], [38.8, 130.2]], { padding: [10, 10] }); }
