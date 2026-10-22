@@ -977,6 +977,20 @@ textarea { resize: vertical; min-height: 84px; }
 .who ul { margin: 0; padding-left: 18px; }
 .byline { font-size: 14px; color: var(--ink-soft); }
 .addphoto { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 8px 16px; border: 3px dashed var(--edge); border-radius: 16px; font: 400 17px var(--font-display); cursor: pointer; background: var(--paper-2); }
+details.visit { display: block; padding-top: 0; }
+details.visit > summary { list-style: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; min-height: 56px; padding: 10px 2px; cursor: pointer; }
+details.visit > summary::-webkit-details-marker { display: none; }
+details.visit > summary .sm-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+details.visit > summary .sm-d { font: 400 18px var(--font-display); }
+details.visit > summary .sm-m { font-size: 14px; color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+details.visit > summary .sm-th { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; border: 2px solid var(--edge); }
+details.visit > summary::after { content: "▾"; grid-column: 2; grid-row: 1; justify-self: end; color: var(--ink-soft); }
+details.visit > summary:has(.sm-th)::after { display: none; }
+details.visit[open] > summary::after { content: "▴"; }
+details.visit > .vbody { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 4px 2px 14px; }
+.vsum { margin: 0; font-size: 15px; color: var(--ink-soft); }
+.photoedit { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.photoedit img { width: 120px; height: 120px; object-fit: cover; border-radius: 12px; border: 3px solid var(--edge); }
 </style>
 </head>
 <body>
@@ -1158,7 +1172,7 @@ const placeLabel = (p) => p.country || (placed(p) && !inKorea(p.lat, p.lon) ? '�
 /* ---------- 상태 ---------- */
 const S = {
   visits: [], parks: [], tab: 'map', loaded: false, sel: null, temp: null, sheet: null, pop: null,
-  confirm: null, busy: false, q: '', online: null, pick: false, byId: new Map(), vBy: new Map(), storage: true
+  confirm: null, vopen: new Set(), vtouched: false, busy: false, q: '', online: null, pick: false, byId: new Map(), vBy: new Map(), storage: true
 };
 let map = null, cluster = null, dots = null, selMarker = null, tempMarker = null;
 let lastFocus = null, confirmTimer = null, toastTimer = null, previewUrl = null, lastNom = 0;
@@ -1311,6 +1325,10 @@ const Cloud = (() => {
         const old = path; path = np;
         if (old) api('/storage/v1/object/photos', { method: 'DELETE', headers: JSONH, body: JSON.stringify({ prefixes: [old] }) }).catch(() => {});
       }
+      if (kind === 'visit' && !o.photo && path) {
+        api('/storage/v1/object/photos', { method: 'DELETE', headers: JSONH, body: JSON.stringify({ prefixes: [path] }) }).catch(() => {});
+        path = null; o.photoPath = null;
+      }
       const r = await api('/rest/v1/records?on_conflict=family_id,id', { method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, JSONH), body: JSON.stringify({ id: o.id, family_id: fam.id, kind, data, photo_path: path, updated_at: new Date().toISOString() }) });
       if (!r.ok) throw new Error('save');
       if (kind === 'visit' && path) { o.photoPath = path; await sign([path]); o.photoUrl = urls.get(path) || null; o.photo = true; }
@@ -1453,6 +1471,7 @@ async function delVisit(id) {
 }
 async function saveReview(id, r) {
   const v = S.visits.find((x) => x.id === id); if (!v) return;
+  if ('photo' in r) { const u = urlCache.get(id); if (u) { URL.revokeObjectURL(u); urlCache.delete(id); } if (!r.photo) v.photoUrl = null; }
   Object.assign(v, r); await DB.put('visits', v);
 }
 
@@ -1765,18 +1784,23 @@ function reviewView(v) {
     (v.scary ? '<span class="face-view">' + faceSVG(v.scary) + SCARY_TXT[v.scary] + '</span>' : '') +
     (v.again ? '<span class="tag">' + AGAIN_TXT[v.again] + '</span>' : '') +
     (v.fav ? '<span class="fav"><b>제일 재미있었던 건</b> ' + esc(v.fav) + '</span>' : '') + '</div>' +
-    '<button type="button" class="link" data-act="review" data-id="' + esc(v.id) + '">평가 고치기</button>';
+    '';
 }
 
 /* ---------- 시트 ---------- */
-function visitCard(v, p) {
+function visitCard(v, p, idx) {
   const src = photoURL(v);
-  return '<li class="visit"><div class="vdate">' + fmtKoLong(v.date) + '</div>' +
+  const open = S.vopen.has(v.id) || (visitsOf(v.parkId).length === 1 && !S.vtouched);
+  const rate = v.rating ? '<span class="rate">★ ' + v.rating + '</span>' : '';
+  return '<li><details class="visit" data-vid="' + esc(v.id) + '"' + (open ? ' open' : '') + '><summary><span class="sm-t"><span class="sm-d">' + fmtKoShort(v.date) + ' ' + rate + '</span>' +
+    '<span class="sm-m">' + esc(v.memo || v.fav || (v.by ? v.by + '님' : '')) + '</span></span>' +
+    (src ? '<img class="sm-th" src="' + src + '" alt="" loading="lazy">' : '') + '</summary><div class="vbody">' +
+    '<div class="vdate">' + fmtKoLong(v.date) + '</div>' +
     (src ? '<button class="polaroid" data-act="light" data-id="' + esc(v.id) + '" style="--r:' + rotFor(v.id, 2) + 'deg" aria-label="사진 크게 보기"><img src="' + src + '" alt="' + esc(p.name) + ' ' + fmtKoShort(v.date) + ' 사진" loading="lazy"><span class="cap">' + fmtKoShort(v.date) + '</span></button>' : '') +
-    (!src ? '<label class="addphoto" for="ap-' + esc(v.id) + '">사진 올리기</label><input class="sr" type="file" accept="image/*" id="ap-' + esc(v.id) + '" data-vid="' + esc(v.id) + '">' : '') +
     (v.memo ? '<p class="memo">' + esc(v.memo) + '</p>' : '') + reviewView(v) +
     (v.by ? '<p class="byline">' + esc(v.by) + '님이 붙였어요</p>' : '') +
-    '<button class="link danger" data-act="del" data-id="' + esc(v.id) + '">' + (S.confirm === v.id ? '정말 지울까요? 한 번 더 누르면 지워져요' : '이 기록 지우기') + '</button></li>';
+    '<button type="button" class="btn ghost sm" data-act="review" data-id="' + esc(v.id) + '">' + (src ? '기록 고치기 (사진·날짜·메모)' : '사진 올리기·기록 고치기') + '</button>' +
+    '<button class="link danger" data-act="del" data-id="' + esc(v.id) + '">' + (S.confirm === v.id ? '정말 지울까요? 한 번 더 누르면 지워져요' : '이 기록 지우기') + '</button></div></details></li>';
 }
 function detailHTML(p) {
   const vs = visitsOf(p.id), avg = avgRating(p.id);
@@ -1785,7 +1809,8 @@ function detailHTML(p) {
     '<div><h2 id="dt">' + esc(p.name) + '</h2><p>' + esc(placeLabel(p) + (p.region ? ' · ' + p.region : '')) + ' · ' + vs.length + '번 다녀왔어요' + (avg ? ' · 별 ' + avg.toFixed(1) : '') + '</p></div>' +
     '<button class="x" data-act="close">닫기</button></div>' +
     '<button class="primary wide" data-act="add" data-park="' + esc(p.id) + '">또 다녀왔어요!</button>' +
-    '<ol class="visits">' + vs.map((v) => visitCard(v, p)).join('') + '</ol></div></div>';
+    (vs.length > 1 ? '<p class="vsum">처음 ' + fmtKoShort(vs[vs.length - 1].date) + ' · 마지막 ' + fmtKoShort(vs[0].date) + ' · 사진 ' + vs.filter((x) => x.photo).length + '장</p>' : '') +
+    '<ol class="visits">' + vs.map((v, i) => visitCard(v, p, i)).join('') + '</ol></div></div>';
 }
 function formHTML(pre) {
   const optOf = (p) => '<option value="' + esc(p.id) + '"' + (p.id === pre ? ' selected' : '') + '>' + esc(p.name) + '</option>';
@@ -1805,10 +1830,16 @@ function formHTML(pre) {
     '<div class="actions"><button type="button" class="ghost" data-act="close">그만두기</button><button type="submit" class="primary" id="f-save">스티커 붙이기!</button></div></form></div></div>';
 }
 function reviewSheetHTML(v) {
-  const p = S.byId.get(v.parkId);
+  const p = S.byId.get(v.parkId), src = photoURL(v), rm = !!S.sheet.rmPhoto;
   return '<div class="layer" data-act="close-layer"><div class="panel" role="dialog" aria-modal="true" aria-labelledby="rt">' +
-    '<h2 id="rt">' + esc(p ? p.name : '') + ' ' + esc(fmtKoShort(v.date)) + '</h2><form id="rf" data-id="' + esc(v.id) + '">' + reviewFields(v) +
-    '<div class="actions"><button type="button" class="ghost" data-act="close">그만두기</button><button type="submit" class="primary">평가 저장</button></div></form></div></div>';
+    '<h2 id="rt">' + esc(p ? p.name : '') + ' 기록 고치기</h2><form id="rf" data-id="' + esc(v.id) + '">' +
+    '<div class="field"><label class="f" for="e-date">언제 갔어요?</label><input type="date" id="e-date" value="' + esc(v.date) + '" max="' + todayStr() + '" required></div>' +
+    '<div class="field"><span class="flabel">사진</span><div class="photoedit">' + (src && !rm ? '<img src="' + src + '" alt="지금 사진">' : '<small class="note">' + (rm ? '사진을 뺄게요.' : '사진이 아직 없어요.') + '</small>') +
+    '<label class="addphoto" for="e-photo">' + (src ? '사진 바꾸기' : '사진 올리기') + '</label><input class="sr" type="file" id="e-photo" accept="image/*"><small class="note" id="e-photo-note"></small>' +
+    (src && !rm ? '<button type="button" class="link" data-act="e-rm-photo">사진 빼기</button>' : '') + '</div></div>' +
+    '<div class="field"><label class="f" for="e-memo">한 줄 메모</label><textarea id="e-memo" rows="2" maxlength="300">' + esc(v.memo || '') + '</textarea></div>' +
+    reviewFields(v) +
+    '<div class="actions"><button type="button" class="ghost" data-act="close">그만두기</button><button type="submit" class="primary" id="e-save">저장</button></div></form></div></div>';
 }
 function acctHTML() {
   const f = Cloud.fam || {};
@@ -1911,6 +1942,7 @@ document.addEventListener('click', (e) => {
       if (S.pick) toast('공원이 있는 곳을 지도에서 눌러 보세요!');
       break;
     case 'export': exportBackup(); break;
+    case 'e-rm-photo': S.sheet.rmPhoto = true; renderSheet(); break;
     case 'acct':
       openSheet({ type: 'acct' });
       Cloud.members().then((m) => { S.members = m; if (S.sheet && S.sheet.type === 'acct') renderSheet(); });
@@ -1948,6 +1980,7 @@ document.addEventListener('change', (e) => {
     }).catch(() => toast('사진을 올리지 못했어요. 다시 해 볼까요?'));
     return;
   }
+  if (e.target.id === 'e-photo') { const n = $('#e-photo-note'); if (n) n.textContent = e.target.files && e.target.files[0] ? '새 사진을 골랐어요. 저장을 눌러 주세요.' : ''; return; }
   if (e.target.id === 'imp') { const f = e.target.files && e.target.files[0]; if (f) importBackup(f); e.target.value = ''; }
 });
 document.addEventListener('submit', async (e) => {
@@ -1957,11 +1990,18 @@ document.addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
       const back = S.sheet ? S.sheet.back : null;
-      await saveReview(e.target.getAttribute('data-id'), readReview(e.target));
+      const r = readReview(e.target), df = $('#e-photo') && $('#e-photo').files[0];
+      r.date = $('#e-date').value || undefined; r.memo = ($('#e-memo').value || '').trim();
+      if (!r.date) delete r.date;
+      if (df) { const b = await shrink(df, 1400, 0.82); if (!b) throw new Error('photo'); r.photo = b; }
+      else if (S.sheet && S.sheet.rmPhoto) r.photo = null;
+      S.busy = true; $('#e-save').disabled = true; $('#e-save').textContent = '저장 중…';
+      await saveReview(e.target.getAttribute('data-id'), r);
       closeSheet(); renderAll(); if (back) openSheet({ type: 'detail', parkId: back });
-      toast('평가를 저장했어요!');
+      toast('저장했어요!');
     }
-    catch (err) { toast('저장이 안 됐어요. 다시 눌러 볼까요?'); }
+    catch (err) { toast('저장이 안 됐어요. 다시 눌러 볼까요?'); const sb = $('#e-save'); if (sb) { sb.disabled = false; sb.textContent = '저장'; } }
+    finally { S.busy = false; }
     return;
   }
   if (e.target.id !== 'f') return;
@@ -2036,6 +2076,11 @@ async function syncNow() {
     }
   } catch (err) { /* 다음 번에 다시 */ }
 }
+document.addEventListener('toggle', (e) => {
+  const d = e.target; if (!d || !d.matches || !d.matches('details.visit')) return;
+  const id = d.getAttribute('data-vid'); S.vtouched = true;
+  if (d.open) S.vopen.add(id); else S.vopen.delete(id);
+}, true);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) syncNow(); });
 function authHTML() {
   const a = S.auth, head = '<h2>놀이공원 스티커북</h2>', err = '<p class="err" id="a-err" role="alert">' + esc(a.err || '') + '</p>';
