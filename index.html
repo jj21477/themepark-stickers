@@ -991,6 +991,25 @@ details.visit > .vbody { display: flex; flex-direction: column; align-items: fle
 .vsum { margin: 0; font-size: 15px; color: var(--ink-soft); }
 .photoedit { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .photoedit img { width: 120px; height: 120px; object-fit: cover; border-radius: 12px; border: 3px solid var(--edge); }
+.vtitle { font: 400 22px var(--font-display); overflow-wrap: anywhere; }
+.pstrip { display: flex; gap: 10px; overflow-x: auto; width: 100%; padding: 12px 4px 8px; scroll-snap-type: x proximity; }
+.polaroid.sm { flex: none; width: 150px; padding: 6px 6px 6px; scroll-snap-align: start; }
+.polaroid.sm img { height: 130px; max-height: 130px; }
+details.visit > summary .sm-w { position: relative; display: inline-flex; }
+details.visit > summary .cnt { position: absolute; right: -6px; bottom: -6px; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px; background: var(--pink); color: #fff; border: 2px solid var(--edge); font: 400 13px/18px var(--font-display); text-align: center; }
+.pgrid { display: flex; flex-wrap: wrap; gap: 10px; }
+.pgrid:empty { display: none; }
+.pth { position: relative; }
+.pth img { display: block; width: 88px; height: 88px; object-fit: cover; border-radius: 12px; border: 3px solid var(--edge); }
+.pth .px { position: absolute; top: -8px; right: -8px; width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--edge); background: var(--sheet); color: var(--ink); font-size: 14px; line-height: 1; cursor: pointer; padding: 0; }
+.lightwrap { position: fixed; inset: 0; z-index: 1400; }
+.lightwrap .light { position: absolute; inset: 0; z-index: 1; }
+.lnav { position: absolute; top: 50%; transform: translateY(-50%); width: 52px; height: 72px; border: 0; border-radius: 14px; background: rgba(255, 255, 255, .85); color: #1E2A5E; font-size: 40px; line-height: 1; cursor: pointer; z-index: 2; }
+.lnav.l { left: 8px; } .lnav.r { right: 8px; }
+.lcount { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); padding: 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, .88); color: #1E2A5E; font: 400 16px var(--font-display); z-index: 2; }
+details.more { display: flex; flex-direction: column; gap: 14px; }
+details.more > summary { cursor: pointer; font: 400 18px var(--font-display); min-height: 44px; display: flex; align-items: center; }
+details.more[open] > summary { margin-bottom: 4px; }
 </style>
 </head>
 <body>
@@ -1172,7 +1191,7 @@ const placeLabel = (p) => p.country || (placed(p) && !inKorea(p.lat, p.lon) ? '�
 /* ---------- 상태 ---------- */
 const S = {
   visits: [], parks: [], tab: 'map', loaded: false, sel: null, temp: null, sheet: null, pop: null,
-  confirm: null, vopen: new Set(), vtouched: false, busy: false, q: '', online: null, pick: false, byId: new Map(), vBy: new Map(), storage: true
+  confirm: null, nf: [], light: null, vopen: new Set(), vtouched: false, busy: false, q: '', online: null, pick: false, byId: new Map(), vBy: new Map(), storage: true
 };
 let map = null, cluster = null, dots = null, selMarker = null, tempMarker = null;
 let lastFocus = null, confirmTimer = null, toastTimer = null, previewUrl = null, lastNom = 0;
@@ -1294,15 +1313,21 @@ const Cloud = (() => {
       }
     }
   }
+  const known = new Map();
   async function load() {
     const r = await api('/rest/v1/records?select=id,kind,data,photo_path&family_id=eq.' + fam.id + '&order=updated_at.asc&limit=5000');
     if (!r.ok) throw new Error('load');
     const rows = await r.json();
-    await sign(rows.map((x) => x.photo_path).filter(Boolean));
+    const pathsOf = (x) => (x.data && Array.isArray(x.data.photoPaths) ? x.data.photoPaths : (x.photo_path ? [x.photo_path] : []));
+    await sign(rows.flatMap((x) => (x.kind === 'visit' ? pathsOf(x) : [])));
     const visits = [], parks = [];
     rows.forEach((x) => {
       const rec = Object.assign({}, x.data, { id: x.id });
-      if (x.kind === 'visit') { if (x.photo_path) { rec.photo = true; rec.photoPath = x.photo_path; rec.photoUrl = urls.get(x.photo_path) || null; } else rec.photo = null; visits.push(rec); } else parks.push(rec);
+      if (x.kind === 'visit') {
+        delete rec.photoPaths; const ps = pathsOf(x);
+        rec.photos = ps.map((path) => ({ path, url: urls.get(path) || null }));
+        known.set(x.id, ps); visits.push(rec);
+      } else parks.push(rec);
     });
     cache = { visits, parks };
     return cache;
@@ -1316,27 +1341,37 @@ const Cloud = (() => {
     get ok() { return true; },
     async all(n) { return n === 'visits' ? (await load()).visits : cache.parks; },
     async put(n, o) {
-      const kind = kindOf(n), data = Object.assign({}, o); let path = o.photoPath || null;
-      delete data.photo; delete data.photoUrl; delete data.photoPath;
-      if (kind === 'visit' && o.photo instanceof Blob) {
-        const np = fam.id + '/' + o.id + '-' + Date.now() + '.jpg';
-        const up = await api('/storage/v1/object/photos/' + np, { method: 'POST', headers: { 'Content-Type': 'image/jpeg', 'x-upsert': 'true' }, body: o.photo });
-        if (!up.ok) throw new Error('upload');
-        const old = path; path = np;
-        if (old) api('/storage/v1/object/photos', { method: 'DELETE', headers: JSONH, body: JSON.stringify({ prefixes: [old] }) }).catch(() => {});
+      const kind = kindOf(n), data = Object.assign({}, o);
+      delete data.photos; delete data.photo; delete data.photoUrl; delete data.photoPath;
+      let paths = [];
+      if (kind === 'visit') {
+        let i = 0;
+        for (const it of (o.photos || [])) {
+          if (it instanceof Blob) {
+            const np = fam.id + '/' + o.id + '-' + Date.now() + '-' + (i++) + '.jpg';
+            const up = await api('/storage/v1/object/photos/' + np, { method: 'POST', headers: { 'Content-Type': 'image/jpeg', 'x-upsert': 'true' }, body: it });
+            if (!up.ok) throw new Error('upload');
+            paths.push(np);
+          } else if (it && it.path) paths.push(it.path);
+        }
+        data.photoPaths = paths;
       }
-      if (kind === 'visit' && !o.photo && path) {
-        api('/storage/v1/object/photos', { method: 'DELETE', headers: JSONH, body: JSON.stringify({ prefixes: [path] }) }).catch(() => {});
-        path = null; o.photoPath = null;
-      }
-      const r = await api('/rest/v1/records?on_conflict=family_id,id', { method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, JSONH), body: JSON.stringify({ id: o.id, family_id: fam.id, kind, data, photo_path: path, updated_at: new Date().toISOString() }) });
+      const r = await api('/rest/v1/records?on_conflict=family_id,id', { method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, JSONH), body: JSON.stringify({ id: o.id, family_id: fam.id, kind, data, photo_path: paths[0] || null, updated_at: new Date().toISOString() }) });
       if (!r.ok) throw new Error('save');
-      if (kind === 'visit' && path) { o.photoPath = path; await sign([path]); o.photoUrl = urls.get(path) || null; o.photo = true; }
+      if (kind === 'visit') {
+        const gone = (known.get(o.id) || []).filter((x) => !paths.includes(x));
+        if (gone.length) api('/storage/v1/object/photos', { method: 'DELETE', headers: JSONH, body: JSON.stringify({ prefixes: gone }) }).catch(() => {});
+        known.set(o.id, paths);
+        await sign(paths);
+        o.photos = paths.map((path) => ({ path, url: urls.get(path) || null }));
+      }
     },
     async del(n, id, rec) {
       const r = await api('/rest/v1/records?family_id=eq.' + fam.id + '&kind=eq.' + kindOf(n) + '&id=eq.' + encodeURIComponent(id), { method: 'DELETE' });
       if (!r.ok) throw new Error('del');
-      if (rec && rec.photoPath) api('/storage/v1/object/photos', { method: 'DELETE', headers: JSONH, body: JSON.stringify({ prefixes: [rec.photoPath] }) }).catch(() => {});
+      const ps = (rec && rec.photos ? rec.photos.map((x) => x && x.path).filter(Boolean) : []);
+      if (ps.length) api('/storage/v1/object/photos', { method: 'DELETE', headers: JSONH, body: JSON.stringify({ prefixes: ps }) }).catch(() => {});
+      known.delete(id);
     }
   };
 })();
@@ -1362,13 +1397,15 @@ function avgRating(pid) {
   const r = visitsOf(pid).filter((v) => v.rating > 0);
   return r.length ? r.reduce((a, v) => a + v.rating, 0) / r.length : 0;
 }
-function photoURL(v) {
-  if (!v.photo) return null;
-  if (v.photoUrl) return v.photoUrl;
-  if (!(v.photo instanceof Blob)) return null;
-  let u = urlCache.get(v.id);
-  if (!u) { u = URL.createObjectURL(v.photo); urlCache.set(v.id, u); }
-  return u;
+const blobUrls = new WeakMap();
+function blobURL(b) { let u = blobUrls.get(b); if (!u) { u = URL.createObjectURL(b); blobUrls.set(b, u); } return u; }
+const picsOf = (v) => (v && Array.isArray(v.photos) ? v.photos : []);
+const picURL = (it) => (!it ? null : it instanceof Blob ? blobURL(it) : it.url || null);
+function photoURLs(v) { return picsOf(v).map(picURL).filter(Boolean); }
+function photoURL(v) { return photoURLs(v)[0] || null; }
+function normVisit(v) {
+  if (!Array.isArray(v.photos)) v.photos = v.photo instanceof Blob ? [v.photo] : [];
+  delete v.photo; delete v.photoUrl; delete v.photoPath; return v;
 }
 
 /* ---------- 스티커 그림 ---------- */
@@ -1396,6 +1433,7 @@ function faceSVG(level) {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="#FFE08A" stroke="#1E2A5E" stroke-width="1.6"/>' + eyes + mouth + '</svg>';
 }
 const SCARY_TXT = { 1: '하나도 안 무서워요', 2: '조금 무서워요', 3: '아주 무서워요' };
+const WHO = ['아빠', '엄마', '형제·자매', '친구', '할머니·할아버지'];
 const AGAIN_TXT = { yes: '또 갈래요!', some: '가끔 가고 싶어요', other: '다른 곳도 가 볼래요' };
 function starsView(n) {
   let h = '';
@@ -1452,12 +1490,12 @@ async function addVisit(o) {
     const p = S.byId.get(pid);
     if (p && !S.parks.some((x) => x.id === pid)) { const rec = { id: pid, cat: 1 }; await DB.put('parks', rec); S.parks.push(rec); }
   }
-  let photo = null;
-  if (o.file) {
-    photo = await shrink(o.file, 1400, 0.82);
-    if (!photo) note = '사진을 열지 못해서 기록만 저장했어요.';
+  const photos = [];
+  for (const f of (o.files || [])) {
+    const b = await shrink(f, 1400, 0.82);
+    if (b) photos.push(b); else note = '열지 못한 사진이 있었어요.';
   }
-  const rec = Object.assign({ id: 'v_' + rid(), parkId: pid, date: o.date, memo: o.memo || '', photo, createdAt: Date.now() }, o.review);
+  const rec = Object.assign({ id: 'v_' + rid(), parkId: pid, date: o.date, memo: o.memo || '', photos, createdAt: Date.now() }, o.review);
   if (Cloud.on() && DB === Cloud) rec.by = Cloud.name;
   await DB.put('visits', rec); S.visits.push(rec);
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* 무시 */ }
@@ -1471,7 +1509,6 @@ async function delVisit(id) {
 }
 async function saveReview(id, r) {
   const v = S.visits.find((x) => x.id === id); if (!v) return;
-  if ('photo' in r) { const u = urlCache.get(id); if (u) { URL.revokeObjectURL(u); urlCache.delete(id); } if (!r.photo) v.photoUrl = null; }
   Object.assign(v, r); await DB.put('visits', v);
 }
 
@@ -1767,39 +1804,56 @@ function reviewFields(v) {
   }
   const scary = [1, 2, 3].map((n) => '<input class="sr" type="radio" name="scary" id="sc' + n + '" value="' + n + '"' + (v.scary === n ? ' checked' : '') + '><label for="sc' + n + '">' + faceSVG(n) + SCARY_TXT[n] + '</label>').join('');
   const again = Object.keys(AGAIN_TXT).map((k) => '<input class="sr" type="radio" name="again" id="ag-' + k + '" value="' + k + '"' + (v.again === k ? ' checked' : '') + '><label for="ag-' + k + '">' + AGAIN_TXT[k] + '</label>').join('');
-  return '<div class="review"><h3>내 평가</h3>' +
+  const who = WHO.map((w, i) => '<input class="sr" type="checkbox" name="who" id="wh' + i + '" value="' + w + '"' + ((v.who || []).indexOf(w) >= 0 ? ' checked' : '') + '><label for="wh' + i + '">' + w + '</label>').join('');
+  const extra = !!(v.who && v.who.length || v.food || v.next);
+  return '<div class="review"><h3>오늘의 기억 남기기</h3>' +
+    '<div class="field"><label class="rq" for="r-title">오늘은 어떤 날이었어요? <small>오늘의 이름을 지어 봐요</small></label><input type="text" id="r-title" maxlength="40" placeholder="예: 번개 롤러코스터를 탄 날" value="' + esc(v.title || '') + '"></div>' +
     '<div class="field"><span class="rq">얼마나 재미있었어요?</span><div class="stars" role="radiogroup" aria-label="재미 별점">' + stars + '</div></div>' +
     '<div class="field"><label class="rq" for="r-fav">제일 재미있었던 건? <small>(안 써도 돼요)</small></label><input type="text" id="r-fav" maxlength="60" placeholder="예: 롤러코스터, 츄러스" value="' + esc(v.fav || '') + '"></div>' +
     '<div class="field"><span class="rq">얼마나 무서웠어요?</span><div class="chips" role="radiogroup" aria-label="무서운 정도">' + scary + '</div></div>' +
-    '<div class="field"><span class="rq">또 가고 싶어요?</span><div class="chips" role="radiogroup" aria-label="또 가고 싶은지">' + again + '</div></div></div>';
+    '<div class="field"><span class="rq">또 가고 싶어요?</span><div class="chips" role="radiogroup" aria-label="또 가고 싶은지">' + again + '</div></div>' +
+    '<details class="more"' + (extra ? ' open' : '') + '><summary>더 기억하고 싶다면</summary>' +
+    '<div class="field"><span class="rq">누구랑 갔어요?</span><div class="chips" role="group" aria-label="함께 간 사람">' + who + '</div></div>' +
+    '<div class="field"><label class="rq" for="r-food">맛있었던 것</label><input type="text" id="r-food" maxlength="60" placeholder="예: 츄러스, 핫도그" value="' + esc(v.food || '') + '"></div>' +
+    '<div class="field"><label class="rq" for="r-next">다음에 꼭 해 볼 것</label><input type="text" id="r-next" maxlength="60" placeholder="예: 자이로드롭 타기" value="' + esc(v.next || '') + '"></div></details></div>';
 }
 function readReview(form) {
   const val = (n) => { const e = form.querySelector('input[name="' + n + '"]:checked'); return e ? e.value : ''; };
-  return { rating: Number(val('rating')) || 0, scary: Number(val('scary')) || 0, again: val('again'), fav: (form.querySelector('#r-fav').value || '').trim() };
+  const tx = (id) => ((form.querySelector('#' + id) || {}).value || '').trim();
+  return {
+    rating: Number(val('rating')) || 0, scary: Number(val('scary')) || 0, again: val('again'), fav: tx('r-fav'),
+    title: tx('r-title'), food: tx('r-food'), next: tx('r-next'),
+    who: Array.from(form.querySelectorAll('input[name="who"]:checked')).map((e) => e.value)
+  };
 }
 function reviewView(v) {
-  const has = v.rating || v.scary || v.again || v.fav;
-  if (!has) return '<button type="button" class="btn ghost sm" data-act="review" data-id="' + esc(v.id) + '">내 평가 남기기</button>';
+  const has = v.rating || v.scary || v.again || v.fav || v.food || v.next || (v.who && v.who.length);
+  if (!has) return '';
   return '<div class="rv">' + (v.rating ? starsView(v.rating) : '') +
     (v.scary ? '<span class="face-view">' + faceSVG(v.scary) + SCARY_TXT[v.scary] + '</span>' : '') +
     (v.again ? '<span class="tag">' + AGAIN_TXT[v.again] + '</span>' : '') +
-    (v.fav ? '<span class="fav"><b>제일 재미있었던 건</b> ' + esc(v.fav) + '</span>' : '') + '</div>' +
-    '';
+    (v.who && v.who.length ? '<span class="fav"><b>함께 간 사람</b> ' + esc(v.who.join(', ')) + '</span>' : '') +
+    (v.fav ? '<span class="fav"><b>제일 재미있었던 건</b> ' + esc(v.fav) + '</span>' : '') +
+    (v.food ? '<span class="fav"><b>맛있었던 것</b> ' + esc(v.food) + '</span>' : '') +
+    (v.next ? '<span class="fav"><b>다음에 꼭 해 볼 것</b> ' + esc(v.next) + '</span>' : '') + '</div>';
 }
 
 /* ---------- 시트 ---------- */
 function visitCard(v, p, idx) {
-  const src = photoURL(v);
+  const us = photoURLs(v), src = us[0];
   const open = S.vopen.has(v.id) || (visitsOf(v.parkId).length === 1 && !S.vtouched);
   const rate = v.rating ? '<span class="rate">★ ' + v.rating + '</span>' : '';
+  const pics = us.length === 1
+    ? '<button class="polaroid" data-act="light" data-id="' + esc(v.id) + '" data-i="0" style="--r:' + rotFor(v.id, 2) + 'deg" aria-label="사진 크게 보기"><img src="' + src + '" alt="' + esc(p.name) + ' ' + fmtKoShort(v.date) + ' 사진" loading="lazy"><span class="cap">' + fmtKoShort(v.date) + '</span></button>'
+    : us.length ? '<div class="pstrip">' + us.map((u, i) => '<button class="polaroid sm" data-act="light" data-id="' + esc(v.id) + '" data-i="' + i + '" aria-label="사진 ' + (i + 1) + ' 크게 보기"><img src="' + u + '" alt="" loading="lazy"></button>').join('') + '</div>' : '';
   return '<li><details class="visit" data-vid="' + esc(v.id) + '"' + (open ? ' open' : '') + '><summary><span class="sm-t"><span class="sm-d">' + fmtKoShort(v.date) + ' ' + rate + '</span>' +
-    '<span class="sm-m">' + esc(v.memo || v.fav || (v.by ? v.by + '님' : '')) + '</span></span>' +
-    (src ? '<img class="sm-th" src="' + src + '" alt="" loading="lazy">' : '') + '</summary><div class="vbody">' +
-    '<div class="vdate">' + fmtKoLong(v.date) + '</div>' +
-    (src ? '<button class="polaroid" data-act="light" data-id="' + esc(v.id) + '" style="--r:' + rotFor(v.id, 2) + 'deg" aria-label="사진 크게 보기"><img src="' + src + '" alt="' + esc(p.name) + ' ' + fmtKoShort(v.date) + ' 사진" loading="lazy"><span class="cap">' + fmtKoShort(v.date) + '</span></button>' : '') +
+    '<span class="sm-m">' + esc(v.title || v.memo || v.fav || (v.by ? v.by + '님' : '')) + '</span></span>' +
+    (src ? '<span class="sm-w"><img class="sm-th" src="' + src + '" alt="" loading="lazy">' + (us.length > 1 ? '<span class="cnt">' + us.length + '</span>' : '') + '</span>' : '') + '</summary><div class="vbody">' +
+    (v.title ? '<div class="vtitle">' + esc(v.title) + '</div>' : '') +
+    '<div class="vdate">' + fmtKoLong(v.date) + '</div>' + pics +
     (v.memo ? '<p class="memo">' + esc(v.memo) + '</p>' : '') + reviewView(v) +
     (v.by ? '<p class="byline">' + esc(v.by) + '님이 붙였어요</p>' : '') +
-    '<button type="button" class="btn ghost sm" data-act="review" data-id="' + esc(v.id) + '">' + (src ? '기록 고치기 (사진·날짜·메모)' : '사진 올리기·기록 고치기') + '</button>' +
+    '<button type="button" class="btn ghost sm" data-act="review" data-id="' + esc(v.id) + '">기록 고치기 (사진·날짜·메모·평가)</button>' +
     '<button class="link danger" data-act="del" data-id="' + esc(v.id) + '">' + (S.confirm === v.id ? '정말 지울까요? 한 번 더 누르면 지워져요' : '이 기록 지우기') + '</button></div></details></li>';
 }
 function detailHTML(p) {
@@ -1809,7 +1863,7 @@ function detailHTML(p) {
     '<div><h2 id="dt">' + esc(p.name) + '</h2><p>' + esc(placeLabel(p) + (p.region ? ' · ' + p.region : '')) + ' · ' + vs.length + '번 다녀왔어요' + (avg ? ' · 별 ' + avg.toFixed(1) : '') + '</p></div>' +
     '<button class="x" data-act="close">닫기</button></div>' +
     '<button class="primary wide" data-act="add" data-park="' + esc(p.id) + '">또 다녀왔어요!</button>' +
-    (vs.length > 1 ? '<p class="vsum">처음 ' + fmtKoShort(vs[vs.length - 1].date) + ' · 마지막 ' + fmtKoShort(vs[0].date) + ' · 사진 ' + vs.filter((x) => x.photo).length + '장</p>' : '') +
+    (vs.length > 1 ? '<p class="vsum">처음 ' + fmtKoShort(vs[vs.length - 1].date) + ' · 마지막 ' + fmtKoShort(vs[0].date) + ' · 사진 ' + vs.reduce((a, x) => a + picsOf(x).length, 0) + '장</p>' : '') +
     '<ol class="visits">' + vs.map((v, i) => visitCard(v, p, i)).join('') + '</ol></div></div>';
 }
 function formHTML(pre) {
@@ -1824,19 +1878,18 @@ function formHTML(pre) {
     '<option value="__new">목록에 없어요 (직접 쓰기)</option></select></div>' +
     '<div class="newpark" id="newpark" hidden><input type="text" id="f-name" placeholder="공원 이름" maxlength="40" aria-label="공원 이름"><input type="text" id="f-country" placeholder="해외라면 나라 이름 (예: 일본)" maxlength="20" aria-label="나라"><p class="note">지도에서 찾아서 추가하면 지도에도 스티커가 붙어요.</p></div>' +
     '<div class="field"><label class="f" for="f-date">언제 갔어요?</label><input type="date" id="f-date" value="' + todayStr() + '" max="' + todayStr() + '" required></div>' +
-    '<div class="field"><span class="flabel">사진</span><label class="drop" for="f-photo" id="drop"><span>사진 넣기</span><small>지금 찍거나 앨범에서 골라요</small></label><input class="sr" type="file" id="f-photo" accept="image/*"><div class="pv" id="pv" hidden><img alt="고른 사진 미리보기"><button type="button" class="link" data-act="rm-photo">사진 빼기</button></div></div>' +
-    '<div class="field"><label class="f" for="f-memo">한 줄 메모 (안 써도 돼요)</label><textarea id="f-memo" rows="2" maxlength="300" placeholder="누구랑 갔는지, 뭐가 제일 기억에 남는지"></textarea></div>' +
+    '<div class="field"><span class="flabel">사진 <small class="note">(여러 장 괜찮아요)</small></span><div class="pgrid" id="pics"></div><label class="drop" for="f-photo" id="drop"><span>사진 넣기</span><small>지금 찍거나 앨범에서 골라요</small></label><input class="sr" type="file" id="f-photo" accept="image/*" multiple></div>' +
+    '<div class="field"><label class="f" for="f-memo">오늘 있었던 일 (안 써도 돼요)</label><textarea id="f-memo" rows="2" maxlength="300" placeholder="기억하고 싶은 일을 편하게 써요"></textarea></div>' +
     reviewFields() +
     '<div class="actions"><button type="button" class="ghost" data-act="close">그만두기</button><button type="submit" class="primary" id="f-save">스티커 붙이기!</button></div></form></div></div>';
 }
 function reviewSheetHTML(v) {
-  const p = S.byId.get(v.parkId), src = photoURL(v), rm = !!S.sheet.rmPhoto;
+  const p = S.byId.get(v.parkId);
   return '<div class="layer" data-act="close-layer"><div class="panel" role="dialog" aria-modal="true" aria-labelledby="rt">' +
     '<h2 id="rt">' + esc(p ? p.name : '') + ' 기록 고치기</h2><form id="rf" data-id="' + esc(v.id) + '">' +
     '<div class="field"><label class="f" for="e-date">언제 갔어요?</label><input type="date" id="e-date" value="' + esc(v.date) + '" max="' + todayStr() + '" required></div>' +
-    '<div class="field"><span class="flabel">사진</span><div class="photoedit">' + (src && !rm ? '<img src="' + src + '" alt="지금 사진">' : '<small class="note">' + (rm ? '사진을 뺄게요.' : '사진이 아직 없어요.') + '</small>') +
-    '<label class="addphoto" for="e-photo">' + (src ? '사진 바꾸기' : '사진 올리기') + '</label><input class="sr" type="file" id="e-photo" accept="image/*"><small class="note" id="e-photo-note"></small>' +
-    (src && !rm ? '<button type="button" class="link" data-act="e-rm-photo">사진 빼기</button>' : '') + '</div></div>' +
+    '<div class="field"><span class="flabel">사진 <small class="note">(여러 장 괜찮아요)</small></span><div class="pgrid" id="pics"></div>' +
+    '<label class="addphoto" for="e-photo">사진 더하기</label><input class="sr" type="file" id="e-photo" accept="image/*" multiple></div>' +
     '<div class="field"><label class="f" for="e-memo">한 줄 메모</label><textarea id="e-memo" rows="2" maxlength="300">' + esc(v.memo || '') + '</textarea></div>' +
     reviewFields(v) +
     '<div class="actions"><button type="button" class="ghost" data-act="close">그만두기</button><button type="submit" class="primary" id="e-save">저장</button></div></form></div></div>';
@@ -1865,8 +1918,16 @@ function renderSheet() {
   } else if (s.type === 'acct') host.innerHTML = acctHTML();
   else host.innerHTML = formHTML(s.parkId);
 }
+const MAXPICS = 10;
+function pendingFiles() { return S.sheet && S.sheet.type === 'review' ? S.sheet.add : S.nf; }
+function renderPics() {
+  const box = $('#pics'); if (!box) return;
+  const ex = S.sheet && S.sheet.type === 'review' ? S.sheet.items.map((it, i) => ({ u: picURL(it), act: 'pic-rm-old', i })) : [];
+  const nw = pendingFiles().map((f, i) => ({ u: blobURL(f), act: 'pic-rm-new', i }));
+  box.innerHTML = ex.concat(nw).filter((x) => x.u).map((x) => '<div class="pth"><img src="' + x.u + '" alt=""><button type="button" class="px" data-act="' + x.act + '" data-i="' + x.i + '" aria-label="사진 빼기">✕</button></div>').join('');
+}
 function openSheet(sheet) {
-  lastFocus = document.activeElement; S.sheet = sheet; renderSheet();
+  lastFocus = document.activeElement; if (sheet.type === 'form') S.nf = []; S.sheet = sheet; renderSheet(); renderPics();
   const panel = $('#layer .panel');
   if (panel) { const f = panel.querySelector('select, .primary, button'); if (f) f.focus({ preventScroll: true }); }
 }
@@ -1875,6 +1936,13 @@ function closeSheet() {
   if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
   renderSheet();
   if (lastFocus && lastFocus.focus) { try { lastFocus.focus({ preventScroll: true }); } catch (e) { /* 무시 */ } }
+}
+function showLight(v, i) {
+  const us = photoURLs(v); if (!us.length) return;
+  i = (i + us.length) % us.length; S.light = { id: v.id, i };
+  $('#light').innerHTML = '<div class="lightwrap"><button class="light" data-act="close-light" aria-label="사진 닫기"><img src="' + us[i] + '" alt=""></button>' +
+    (us.length > 1 ? '<button class="lnav l" data-act="light-nav" data-d="-1" aria-label="이전 사진">‹</button><button class="lnav r" data-act="light-nav" data-d="1" aria-label="다음 사진">›</button><span class="lcount">' + (i + 1) + ' / ' + us.length + '</span>' : '') + '</div>';
+  const b = $('#light .light'); if (b) b.focus();
 }
 function openForm(preId) {
   let pre = preId || (S.sel ? S.sel.id : null);
@@ -1901,7 +1969,12 @@ document.addEventListener('click', (e) => {
       const back = S.sheet && S.sheet.type === 'review' ? S.sheet.back : null;
       closeSheet(); if (back) openSheet({ type: 'detail', parkId: back }); break;
     }
-    case 'review': openSheet({ type: 'review', visitId: id, back: S.sheet && S.sheet.type === 'detail' ? S.sheet.parkId : null }); break;
+    case 'review': {
+      const v = S.visits.find((x) => x.id === id); if (!v) break;
+      openSheet({ type: 'review', visitId: id, back: S.sheet && S.sheet.type === 'detail' ? S.sheet.parkId : null, items: picsOf(v).slice(), add: [] }); break;
+    }
+    case 'pic-rm-old': S.sheet.items.splice(Number(t.getAttribute('data-i')), 1); renderPics(); break;
+    case 'pic-rm-new': pendingFiles().splice(Number(t.getAttribute('data-i')), 1); renderPics(); break;
     case 'del':
       if (S.confirm === id) {
         S.confirm = null; clearTimeout(confirmTimer);
@@ -1912,17 +1985,15 @@ document.addEventListener('click', (e) => {
       }
       break;
     case 'light': {
-      const v = S.visits.find((x) => x.id === id), src = v && photoURL(v);
-      if (src) { $('#light').innerHTML = '<button class="light" data-act="close-light" aria-label="사진 닫기"><img src="' + src + '" alt=""></button>'; $('#light .light').focus(); }
+      const v = S.visits.find((x) => x.id === id); if (v) showLight(v, Number(t.getAttribute('data-i')) || 0);
       break;
     }
-    case 'close-light': $('#light').innerHTML = ''; break;
-    case 'rm-photo': {
-      const inp = $('#f-photo'); if (inp) inp.value = '';
-      $('#pv').hidden = true; $('#drop').hidden = false;
-      if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+    case 'light-nav': {
+      const L = S.light; if (!L) break;
+      const v = S.visits.find((x) => x.id === L.id); if (v) showLight(v, L.i + Number(t.getAttribute('data-d')));
       break;
     }
+    case 'close-light': S.light = null; $('#light').innerHTML = ''; break;
     case 'pick': $('#sres').hidden = true; selectPlace(id, { fly: true }); break;
     case 'pick-online': {
       const r = S.online && S.online.items && S.online.items[Number(t.getAttribute('data-i'))]; if (!r) break;
@@ -1942,7 +2013,6 @@ document.addEventListener('click', (e) => {
       if (S.pick) toast('공원이 있는 곳을 지도에서 눌러 보세요!');
       break;
     case 'export': exportBackup(); break;
-    case 'e-rm-photo': S.sheet.rmPhoto = true; renderSheet(); break;
     case 'acct':
       openSheet({ type: 'acct' });
       Cloud.members().then((m) => { S.members = m; if (S.sheet && S.sheet.type === 'acct') renderSheet(); });
@@ -1965,22 +2035,14 @@ document.addEventListener('change', (e) => {
     const isNew = e.target.value === '__new'; $('#newpark').hidden = !isNew;
     if (isNew) $('#f-name').focus();
   }
-  if (e.target.id === 'f-photo') {
-    const f = e.target.files && e.target.files[0];
-    if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
-    if (f) { previewUrl = URL.createObjectURL(f); $('#pv img').src = previewUrl; $('#pv').hidden = false; $('#drop').hidden = true; }
+  if (e.target.id === 'f-photo' || e.target.id === 'e-photo') {
+    const fs = Array.from(e.target.files || []); e.target.value = '';
+    const list = pendingFiles(), have = (S.sheet && S.sheet.type === 'review' ? S.sheet.items.length : 0) + list.length;
+    const room = Math.max(0, MAXPICS - have);
+    fs.slice(0, room).forEach((f) => list.push(f));
+    if (fs.length > room) toast('사진은 한 기록에 ' + MAXPICS + '장까지 넣을 수 있어요.');
+    renderPics(); return;
   }
-  if (e.target.getAttribute && e.target.getAttribute('data-vid')) {
-    const f = e.target.files && e.target.files[0], vid = e.target.getAttribute('data-vid'); e.target.value = '';
-    const v = S.visits.find((x) => x.id === vid); if (!f || !v) return;
-    toast('사진을 올리는 중…');
-    shrink(f, 1400, 0.82).then(async (b) => {
-      if (!b) { toast('사진을 열지 못했어요.'); return; }
-      v.photo = b; await DB.put('visits', v); rebuild(); renderAll(); toast('사진을 올렸어요!');
-    }).catch(() => toast('사진을 올리지 못했어요. 다시 해 볼까요?'));
-    return;
-  }
-  if (e.target.id === 'e-photo') { const n = $('#e-photo-note'); if (n) n.textContent = e.target.files && e.target.files[0] ? '새 사진을 골랐어요. 저장을 눌러 주세요.' : ''; return; }
   if (e.target.id === 'imp') { const f = e.target.files && e.target.files[0]; if (f) importBackup(f); e.target.value = ''; }
 });
 document.addEventListener('submit', async (e) => {
@@ -1990,12 +2052,13 @@ document.addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
       const back = S.sheet ? S.sheet.back : null;
-      const r = readReview(e.target), df = $('#e-photo') && $('#e-photo').files[0];
+      const r = readReview(e.target);
       r.date = $('#e-date').value || undefined; r.memo = ($('#e-memo').value || '').trim();
       if (!r.date) delete r.date;
-      if (df) { const b = await shrink(df, 1400, 0.82); if (!b) throw new Error('photo'); r.photo = b; }
-      else if (S.sheet && S.sheet.rmPhoto) r.photo = null;
       S.busy = true; $('#e-save').disabled = true; $('#e-save').textContent = '저장 중…';
+      const nb = [];
+      for (const f of S.sheet.add) { const b = await shrink(f, 1400, 0.82); if (!b) throw new Error('photo'); nb.push(b); }
+      r.photos = S.sheet.items.concat(nb);
       await saveReview(e.target.getAttribute('data-id'), r);
       closeSheet(); renderAll(); if (back) openSheet({ type: 'detail', parkId: back });
       toast('저장했어요!');
@@ -2008,7 +2071,7 @@ document.addEventListener('submit', async (e) => {
   e.preventDefault();
   if (S.busy) return;
   const parkId = $('#f-park').value, date = $('#f-date').value, memo = $('#f-memo').value.trim();
-  const inp = $('#f-photo'), file = (inp && inp.files[0]) || null;
+  const files = S.nf.slice();
   let newName = '', newCountry = '';
   if (parkId === '__new') {
     newName = $('#f-name').value.trim(); newCountry = $('#f-country').value.trim();
@@ -2018,7 +2081,7 @@ document.addEventListener('submit', async (e) => {
   if (!date) { toast('날짜를 골라 주세요.'); $('#f-date').focus(); return; }
   const btn = $('#f-save'); S.busy = true; btn.disabled = true; btn.textContent = '붙이는 중…';
   try {
-    const r = await addVisit({ parkId, date, memo, file, newName, newCountry, review: readReview(e.target) });
+    const r = await addVisit({ parkId, date, memo, files, newName, newCountry, review: readReview(e.target) });
     closeSheet(); closeCard(); rebuild(); S.pop = r.parkId; renderAll(); confetti();
     const p = S.byId.get(r.parkId);
     toast(r.note || ((p ? p.name : '공원') + ' 스티커를 붙였어요!'));
@@ -2036,7 +2099,8 @@ document.addEventListener('keydown', (e) => {
 /* ---------- 백업 ---------- */
 async function exportBackup() {
   try {
-    const visits = await Promise.all(S.visits.map(async (v) => Object.assign({}, v, { photoUrl: undefined, photoPath: undefined, photo: v.photo ? await blobToDataURL(v.photo instanceof Blob ? v.photo : await (await fetch(v.photoUrl)).blob()) : null })));
+    const toData = async (it) => blobToDataURL(it instanceof Blob ? it : await (await fetch(it.url)).blob());
+    const visits = await Promise.all(S.visits.map(async (v) => Object.assign({}, v, { photos: await Promise.all(picsOf(v).filter((x) => x instanceof Blob || x.url).map(toData)) })));
     const data = { app: 'themepark-stickers', version: 1, exportedAt: new Date().toISOString(), parks: S.parks, visits };
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
@@ -2054,7 +2118,9 @@ async function importBackup(file) {
     for (const v of data.visits || []) {
       const rec = Object.assign({}, v);
       delete rec.photoUrl; delete rec.photoPath;
-      rec.photo = v.photo ? await (await fetch(v.photo)).blob() : null;
+      const srcs = Array.isArray(v.photos) ? v.photos : (typeof v.photo === 'string' && v.photo ? [v.photo] : []);
+      rec.photos = []; for (const d of srcs) rec.photos.push(await (await fetch(d)).blob());
+      delete rec.photo;
       await DB.put('visits', rec); S.visits = S.visits.filter((x) => x.id !== rec.id).concat([rec]);
     }
     rebuild(); renderAll(); toast('백업 기록을 불러왔어요.');
@@ -2069,7 +2135,7 @@ async function syncNow() {
   if (document.hidden || S.busy || DB !== Cloud || !Cloud.fam) return;
   try {
     const c = await Cloud.load();
-    const sig = (a) => JSON.stringify(a.map((x) => [x.id, x.photoPath || '', x.rating || 0, x.fav || '', x.memo || '', x.scary || 0, x.again || '', x.date || '', x.name || '']).sort());
+    const sig = (a) => JSON.stringify(a.map((x) => [x.id, (x.photos || []).map((q) => q.path || '').join(','), x.title || '', x.food || '', x.next || '', (x.who || []).join(','), x.rating || 0, x.fav || '', x.memo || '', x.scary || 0, x.again || '', x.date || '', x.name || '']).sort());
     if (sig(c.visits) !== sig(S.visits) || sig(c.parks) !== sig(S.parks)) {
       S.visits = c.visits; S.parks = c.parks; rebuild();
       if (!(S.sheet && (S.sheet.type === 'form' || S.sheet.type === 'review'))) renderAll();
@@ -2159,7 +2225,7 @@ async function init() {
   renderAll();
   if (Cloud.on()) { await bootCloud(); return; }
   S.storage = await DB.open();
-  try { S.visits = await DB.all('visits'); S.parks = await DB.all('parks'); } catch (e) { S.storage = false; }
+  try { S.visits = (await DB.all('visits')).map(normVisit); S.parks = await DB.all('parks'); } catch (e) { S.storage = false; }
   S.loaded = true; rebuild(); renderAll();
 }
 init();
