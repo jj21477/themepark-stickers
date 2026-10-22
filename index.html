@@ -804,7 +804,7 @@ h1 { margin: 0; font: 400 30px/1.15 var(--font-display); text-wrap: balance; }
 #map.picking { cursor: crosshair; }
 .leaflet-container { font-family: var(--font-body); }
 .leaflet-control-layers { border: 2px solid var(--edge) !important; border-radius: 12px !important; font: 400 16px var(--font-display); }
-.leaflet-control-layers-toggle { width: 40px !important; height: 40px !important; }
+.leaflet-control-layers-toggle { width: 40px !important; height: 40px !important; border-radius: 10px; background-color: var(--sheet); background-repeat: no-repeat; background-position: center; background-size: 24px 24px; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231E2A5E' stroke-width='2' stroke-linejoin='round' stroke-linecap='round'><path d='M12 3 2 8l10 5 10-5-10-5Z'/><path d='m2 13 10 5 10-5'/></svg>") !important; }
 .leaflet-control-layers label { padding: 4px 2px; }
 .leaflet-bar a { width: 40px; height: 40px; line-height: 40px; font-size: 22px; color: var(--ink); }
 .leaflet-control-attribution { font-size: 11px; }
@@ -1010,6 +1010,7 @@ details.visit > summary .cnt { position: absolute; right: -6px; bottom: -6px; mi
 details.more { display: flex; flex-direction: column; gap: 14px; }
 details.more > summary { cursor: pointer; font: 400 18px var(--font-display); min-height: 44px; display: flex; align-items: center; }
 details.more[open] > summary { margin-bottom: 4px; }
+.who .code.sm { font-size: 20px; letter-spacing: .04em; overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
@@ -1222,6 +1223,32 @@ const LocalDB = (() => {
 })();
 
 /* ---------- 저장 (가족 공유: Supabase, REST 직접 호출) ---------- */
+const Crypt = (() => {
+  const B32 = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const te = new TextEncoder(), td = new TextDecoder();
+  const keys = new Map();
+  const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode.apply(null, u8.subarray(i, i + 8192)); return btoa(s); };
+  const unb64 = (t) => Uint8Array.from(atob(t), (c) => c.charCodeAt(0));
+  async function derive(secret) {
+    const base = await crypto.subtle.importKey('raw', te.encode(secret), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: te.encode('themepark-stickers-v1'), iterations: 150000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  }
+  return {
+    newSecret() { const a = crypto.getRandomValues(new Uint8Array(20)); return Array.from(a, (x) => B32[x % 32]).join(''); },
+    valid: (sec) => /^[A-HJ-NP-Z2-9]{20}$/.test(sec),
+    async key(id, secret) { if (!keys.has(id)) keys.set(id, await derive(secret)); return keys.get(id); },
+    forget(id) { keys.delete(id); },
+    async encBytes(key, buf) { const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, buf)); const out = new Uint8Array(12 + ct.length); out.set(iv); out.set(ct, 12); return out; },
+    async decBytes(key, buf) { const u = new Uint8Array(buf); return crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, key, u.slice(12)); },
+    async encJSON(key, obj) { return b64(await this.encBytes(key, te.encode(JSON.stringify(obj)))); },
+    async decJSON(key, t) { return JSON.parse(td.decode(await this.decBytes(key, unb64(t)))); }
+  };
+})();
+const groupSecret = (sec) => (sec || '').match(/.{1,5}/g).join('-');
+function parseInvite(text) {
+  const t = String(text || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return { code: t.slice(0, 6), secret: t.length > 6 ? t.slice(6) : '' };
+}
 const Cloud = (() => {
   const on = () => !!(CLOUD.url && CLOUD.key);
   const base = () => CLOUD.url.replace(/\/$/, '');
@@ -1283,11 +1310,11 @@ const Cloud = (() => {
   }
   function logout() { sess = null; fam = null; cache = { visits: [], parks: [] }; urls.clear(); lsSet('tp-sess', null); }
   async function families() {
-    const r = await api('/rest/v1/members?select=name,family_id,families(id,name,code)&user_id=eq.' + sess.user.id);
+    const r = await api('/rest/v1/members?select=name,family_id,families(id,name,code,enc)&user_id=eq.' + sess.user.id);
     if (r.status === 401) throw new Error('auth');
     if (!r.ok) throw new Error(errText(await jsonOf(r), '가족 정보를 불러오지 못했어요.'));
     const rows = await r.json();
-    return rows.filter((x) => x.families).map((x) => ({ id: x.families.id, name: x.families.name, code: x.families.code, me: x.name }));
+    return rows.filter((x) => x.families).map((x) => ({ id: x.families.id, name: x.families.name, code: x.families.code, enc: !!x.families.enc, me: x.name }));
   }
   async function rpc(fn, args) {
     const r = await api('/rest/v1/rpc/' + fn, { method: 'POST', headers: JSONH, body: JSON.stringify(args) });
@@ -1295,8 +1322,41 @@ const Cloud = (() => {
     if (!r.ok) throw new Error(errText(j, '처리하지 못했어요.'));
     return Array.isArray(j) ? j[0] : j;
   }
-  const createFamily = (fname, my) => rpc('create_family', { fname, myname: my });
-  const joinFamily = (code, my) => rpc('join_family', { fcode: code.trim().toUpperCase(), myname: my });
+  const secOf = (id) => lsGet('tp-sec-' + id);
+  async function createFamily(fname, my) {
+    const f = await rpc('create_family', { fname, myname: my, use_enc: true });
+    const sec = Crypt.newSecret(); lsSet('tp-sec-' + f.id, sec);
+    return Object.assign({}, f, { enc: true });
+  }
+  async function joinFamily(input, my) {
+    const inv = parseInvite(input);
+    if (inv.code.length < 6) throw new Error('초대 코드를 써 주세요.');
+    const f = await rpc('join_family', { fcode: inv.code, myname: my });
+    if (f.enc && inv.secret) { if (!Crypt.valid(inv.secret)) throw new Error('초대 코드가 끝까지 입력되지 않았어요.'); lsSet('tp-sec-' + f.id, inv.secret); Crypt.forget(f.id); }
+    return f;
+  }
+  function setSecret(sec) { if (!Crypt.valid(sec)) return false; lsSet('tp-sec-' + fam.id, sec); Crypt.forget(fam.id); return true; }
+  function clearSecret() { lsSet('tp-sec-' + fam.id, null); Crypt.forget(fam.id); }
+  const hasKey = () => !fam || !fam.enc || !!secOf(fam.id);
+  const invite = () => (fam ? fam.code + (secOf(fam.id) ? '-' + groupSecret(secOf(fam.id)) : '') : '');
+  const lockedErr = () => Object.assign(new Error('locked'), { locked: true });
+  async function getKey() { const sec = secOf(fam.id); if (!sec) throw lockedErr(); return Crypt.key(fam.id, sec); }
+  const dCache = new Map(), inflight = new Set(); let onPhotos = () => {};
+  async function hydrate(paths) {
+    const todo = paths.filter((p) => !dCache.has(p) && !inflight.has(p)); todo.forEach((p) => inflight.add(p));
+    let i = 0;
+    const worker = async () => {
+      while (i < todo.length) {
+        const pth = todo[i++];
+        try {
+          const r = await fetch(urls.get(pth)); if (!r.ok) continue;
+          const plain = await Crypt.decBytes(await getKey(), await r.arrayBuffer());
+          dCache.set(pth, URL.createObjectURL(new Blob([plain], { type: 'image/jpeg' }))); onPhotos();
+        } catch (e) { /* 다음 번에 다시 */ } finally { inflight.delete(pth); }
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+  }
   function useFamily(f) { fam = f; name = f.me || name; lsSet('tp-fam', f.id); }
   async function members() {
     const r = await api('/rest/v1/members?select=name&family_id=eq.' + fam.id + '&order=joined_at.asc');
@@ -1318,44 +1378,58 @@ const Cloud = (() => {
     const r = await api('/rest/v1/records?select=id,kind,data,photo_path&family_id=eq.' + fam.id + '&order=updated_at.asc&limit=5000');
     if (!r.ok) throw new Error('load');
     const rows = await r.json();
-    const pathsOf = (x) => (x.data && Array.isArray(x.data.photoPaths) ? x.data.photoPaths : (x.photo_path ? [x.photo_path] : []));
-    await sign(rows.flatMap((x) => (x.kind === 'visit' ? pathsOf(x) : [])));
+    const key = fam.enc ? await getKey().catch(() => null) : null;
+    const recs = [];
+    for (const x of rows) {
+      let data = x.data || {};
+      if (data._e) { if (!key) throw lockedErr(); try { data = await Crypt.decJSON(key, data._e); } catch (e) { throw lockedErr(); } }
+      const ps = Array.isArray(data.photoPaths) ? data.photoPaths : (x.photo_path ? [x.photo_path] : []);
+      recs.push({ x, data, ps });
+    }
+    await sign(recs.flatMap((q) => (q.x.kind === 'visit' ? q.ps : [])));
     const visits = [], parks = [];
-    rows.forEach((x) => {
-      const rec = Object.assign({}, x.data, { id: x.id });
+    recs.forEach(({ x, data, ps }) => {
+      const rec = Object.assign({}, data, { id: x.id });
       if (x.kind === 'visit') {
-        delete rec.photoPaths; const ps = pathsOf(x);
+        delete rec.photoPaths;
         rec.photos = ps.map((path) => ({ path, url: urls.get(path) || null }));
         known.set(x.id, ps); visits.push(rec);
       } else parks.push(rec);
     });
     cache = { visits, parks };
+    if (fam.enc) hydrate(visits.flatMap((v) => v.photos.map((q) => q.path)));
     return cache;
   }
   const kindOf = (n) => (n === 'visits' ? 'visit' : 'park');
   return {
-    on, restore, auth, logout, families, createFamily, joinFamily, useFamily, members, load,
+    on, restore, auth, logout, families, createFamily, joinFamily, useFamily, members, load, hasKey, invite, setSecret, clearSecret,
+    picUrl: (path) => (fam && fam.enc ? dCache.get(path) || null : urls.get(path) || null),
+    set onPhotos(fn) { onPhotos = fn; },
     get name() { return name; }, get fam() { return fam; }, get user() { return sess && sess.user; }, get hasSess() { return !!sess; },
     savedFam: () => lsGet('tp-fam'),
     open: async () => true,
     get ok() { return true; },
     async all(n) { return n === 'visits' ? (await load()).visits : cache.parks; },
     async put(n, o) {
-      const kind = kindOf(n), data = Object.assign({}, o);
-      delete data.photos; delete data.photo; delete data.photoUrl; delete data.photoPath;
+      const kind = kindOf(n), plain = Object.assign({}, o);
+      delete plain.photos; delete plain.photo; delete plain.photoUrl; delete plain.photoPath;
+      const key = fam.enc ? await getKey() : null;
       let paths = [];
       if (kind === 'visit') {
         let i = 0;
         for (const it of (o.photos || [])) {
           if (it instanceof Blob) {
-            const np = fam.id + '/' + o.id + '-' + Date.now() + '-' + (i++) + '.jpg';
-            const up = await api('/storage/v1/object/photos/' + np, { method: 'POST', headers: { 'Content-Type': 'image/jpeg', 'x-upsert': 'true' }, body: it });
+            const np = fam.id + '/' + o.id + '-' + Date.now() + '-' + (i++) + (key ? '.bin' : '.jpg');
+            const body = key ? new Blob([await Crypt.encBytes(key, await it.arrayBuffer())], { type: 'application/octet-stream' }) : it;
+            const up = await api('/storage/v1/object/photos/' + np, { method: 'POST', headers: { 'Content-Type': key ? 'application/octet-stream' : 'image/jpeg', 'x-upsert': 'true' }, body });
             if (!up.ok) throw new Error('upload');
+            if (key) dCache.set(np, URL.createObjectURL(it));
             paths.push(np);
           } else if (it && it.path) paths.push(it.path);
         }
-        data.photoPaths = paths;
+        plain.photoPaths = paths;
       }
+      const data = key ? { _e: await Crypt.encJSON(key, plain), v: 1 } : plain;
       const r = await api('/rest/v1/records?on_conflict=family_id,id', { method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, JSONH), body: JSON.stringify({ id: o.id, family_id: fam.id, kind, data, photo_path: paths[0] || null, updated_at: new Date().toISOString() }) });
       if (!r.ok) throw new Error('save');
       if (kind === 'visit') {
@@ -1364,6 +1438,7 @@ const Cloud = (() => {
         known.set(o.id, paths);
         await sign(paths);
         o.photos = paths.map((path) => ({ path, url: urls.get(path) || null }));
+        if (key) hydrate(paths);
       }
     },
     async del(n, id, rec) {
@@ -1400,7 +1475,7 @@ function avgRating(pid) {
 const blobUrls = new WeakMap();
 function blobURL(b) { let u = blobUrls.get(b); if (!u) { u = URL.createObjectURL(b); blobUrls.set(b, u); } return u; }
 const picsOf = (v) => (v && Array.isArray(v.photos) ? v.photos : []);
-const picURL = (it) => (!it ? null : it instanceof Blob ? blobURL(it) : it.url || null);
+const picURL = (it) => (!it ? null : it instanceof Blob ? blobURL(it) : it.path ? Cloud.picUrl(it.path) : it.url || null);
 function photoURLs(v) { return picsOf(v).map(picURL).filter(Boolean); }
 function photoURL(v) { return photoURLs(v)[0] || null; }
 function normVisit(v) {
@@ -1898,9 +1973,10 @@ function acctHTML() {
   const f = Cloud.fam || {};
   return '<div class="layer" data-act="close-layer"><div class="panel" role="dialog" aria-modal="true" aria-labelledby="at">' +
     '<div class="dhead"><div><h2 id="at">' + esc(Cloud.name || '내 계정') + '</h2><p>' + esc(f.name || '') + '</p></div><button class="x" data-act="close">닫기</button></div>' +
-    '<div class="who"><span class="flabel">가족 코드</span><span class="code">' + esc(f.code || '') + '</span>' +
+    '<div class="who"><span class="flabel">초대 코드</span><span class="code sm">' + esc(Cloud.invite()) + '</span>' +
     '<button type="button" class="btn ghost sm" data-act="copy-code">코드 복사</button>' +
-    '<p class="note">이 코드를 알려 주면 같은 스티커북에 들어올 수 있어요. 아이 폰에서는 아이 이름으로 가입한 뒤 이 코드를 입력하면 돼요.</p></div>' +
+    '<p class="note">이 코드를 알려 주면 같은 스티커북에 들어올 수 있어요. 아이 폰에서는 아이 이름으로 가입한 뒤 이 코드를 입력하면 돼요.</p>' +
+    (f.enc ? '<p class="note"><b>이 스티커북은 암호화되어 있어요.</b> 기록과 사진은 이 코드를 아는 가족만 볼 수 있고, 관리자도 볼 수 없어요. 코드는 서버에 저장되지 않으니 꼭 따로 보관해 주세요. 잃어버리면 복구할 수 없어요.</p>' : '<p class="note">이 스티커북은 암호화 없이 저장되어 있어요.</p>') + '</div>' +
     '<div class="who"><span class="flabel">함께 쓰는 사람</span><ul>' + (S.members || []).map((m) => '<li>' + esc(m) + '</li>').join('') + '</ul></div>' +
     '<button type="button" class="ghost" data-act="logout">로그아웃</button></div></div>';
 }
@@ -2018,11 +2094,12 @@ document.addEventListener('click', (e) => {
       Cloud.members().then((m) => { S.members = m; if (S.sheet && S.sheet.type === 'acct') renderSheet(); });
       break;
     case 'copy-code':
-      try { navigator.clipboard.writeText(Cloud.fam.code).then(() => toast('코드를 복사했어요.'), () => toast('복사가 안 돼요. 코드를 직접 적어 주세요.')); } catch (err) { toast('복사가 안 돼요. 코드를 직접 적어 주세요.'); }
+      try { navigator.clipboard.writeText(Cloud.invite()).then(() => toast('코드를 복사했어요.'), () => toast('복사가 안 돼요. 코드를 직접 적어 주세요.')); } catch (err) { toast('복사가 안 돼요. 코드를 직접 적어 주세요.'); }
       break;
     case 'logout':
       stopPoll(); Cloud.logout(); closeSheet(); S.visits = []; S.parks = []; S.loaded = false; rebuild(); renderAll();
       $('#acct').hidden = true; showAuth('login'); break;
+    case 'invite-ok': S.busy = false; startCloud().catch(() => toast('연결이 안 돼요. 다시 눌러 주세요.')); break;
     case 'auth-switch': showAuth(S.auth.mode === 'login' ? 'signup' : 'login'); break;
   }
 });
@@ -2046,7 +2123,7 @@ document.addEventListener('change', (e) => {
   if (e.target.id === 'imp') { const f = e.target.files && e.target.files[0]; if (f) importBackup(f); e.target.value = ''; }
 });
 document.addEventListener('submit', async (e) => {
-  if (e.target.id === 'af' || e.target.id === 'ff-new' || e.target.id === 'ff-join') { e.preventDefault(); authSubmit(e.target); return; }
+  if (e.target.id === 'af' || e.target.id === 'ff-new' || e.target.id === 'ff-join' || e.target.id === 'fk') { e.preventDefault(); authSubmit(e.target); return; }
   if (e.target.id === 'sform') { e.preventDefault(); S.q = $('#q').value; renderSres(); onlineSearch(); return; }
   if (e.target.id === 'rf') {
     e.preventDefault();
@@ -2099,8 +2176,8 @@ document.addEventListener('keydown', (e) => {
 /* ---------- 백업 ---------- */
 async function exportBackup() {
   try {
-    const toData = async (it) => blobToDataURL(it instanceof Blob ? it : await (await fetch(it.url)).blob());
-    const visits = await Promise.all(S.visits.map(async (v) => Object.assign({}, v, { photos: await Promise.all(picsOf(v).filter((x) => x instanceof Blob || x.url).map(toData)) })));
+    const toData = async (it) => blobToDataURL(it instanceof Blob ? it : await (await fetch(picURL(it))).blob());
+    const visits = await Promise.all(S.visits.map(async (v) => Object.assign({}, v, { photos: await Promise.all(picsOf(v).filter((x) => x instanceof Blob || picURL(x)).map(toData)) })));
     const data = { app: 'themepark-stickers', version: 1, exportedAt: new Date().toISOString(), parks: S.parks, visits };
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
@@ -2128,7 +2205,16 @@ async function importBackup(file) {
 }
 
 /* ---------- 로그인과 가족 ---------- */
-let pollT = null;
+let pollT = null, photoTimer = null;
+function refreshPhotosSoon() {
+  if (photoTimer) return;
+  photoTimer = setTimeout(() => {
+    photoTimer = null;
+    if (S.tab !== 'map') $('#view').innerHTML = S.tab === 'book' ? renderBook() : renderLog();
+    if (S.sheet && S.sheet.type === 'detail') renderSheet();
+    if (S.sheet && S.sheet.type === 'review') renderPics();
+  }, 250);
+}
 function stopPoll() { if (pollT) { clearInterval(pollT); pollT = null; } }
 function startPoll() { stopPoll(); pollT = setInterval(syncNow, 20000); }
 async function syncNow() {
@@ -2150,10 +2236,23 @@ document.addEventListener('toggle', (e) => {
 document.addEventListener('visibilitychange', () => { if (!document.hidden) syncNow(); });
 function authHTML() {
   const a = S.auth, head = '<h2>놀이공원 스티커북</h2>', err = '<p class="err" id="a-err" role="alert">' + esc(a.err || '') + '</p>';
+  if (a.mode === 'invite') {
+    return '<div class="authbox">' + head + '<h3>가족 초대 코드가 만들어졌어요</h3>' +
+      '<p class="note">이 코드를 아는 가족만 기록과 사진을 볼 수 있어요. 가족에게 이 코드를 알려 주세요. 가입할 때 "가족 코드로 들어가기"에 그대로 붙여 넣으면 돼요.</p>' +
+      '<div class="who"><span class="code sm">' + esc(Cloud.invite()) + '</span><button type="button" class="btn ghost sm" data-act="copy-code">코드 복사</button></div>' +
+      '<p class="note"><b>꼭 따로 보관해 주세요.</b> 이 코드는 서버에 저장되지 않아서, 잃어버리면 기록을 다시 열 수 없어요.</p>' +
+      '<button type="button" class="primary" data-act="invite-ok">시작하기</button></div>';
+  }
+  if (a.mode === 'key') {
+    return '<div class="authbox">' + head + '<h3>초대 코드를 입력해 주세요</h3>' +
+      '<p class="note">이 스티커북은 암호화되어 있어서, 처음 연 기기에서는 초대 코드가 필요해요. 가족이 알려 준 코드를 그대로 붙여 넣어 주세요.</p>' +
+      '<form id="fk"><input type="text" id="fk-code" maxlength="40" autocapitalize="characters" autocomplete="off" placeholder="예: AB3K9Z-XXXXX-XXXXX-XXXXX-XXXXX" aria-label="초대 코드"><button class="primary" type="submit">열기</button></form>' +
+      err + '<button type="button" class="link" data-act="logout">다른 계정으로 로그인</button></div>';
+  }
   if (a.mode === 'family') {
     return '<div class="authbox">' + head + '<p class="note">' + esc(Cloud.name || '') + '님, 함께 쓸 가족 스티커북을 정해 주세요.</p>' +
       '<form id="ff-new"><h3>새로 만들기</h3><input type="text" id="fn-name" maxlength="20" placeholder="가족 이름 (예: 서훈네)" aria-label="가족 이름"><button class="primary" type="submit">만들기</button></form>' +
-      '<hr class="sep"><form id="ff-join"><h3>가족 코드로 들어가기</h3><p class="note">가족이 알려 준 6자리 코드를 써 주세요.</p><input type="text" id="fj-code" maxlength="8" autocapitalize="characters" autocomplete="off" placeholder="예: AB3K9Z" aria-label="가족 코드"><button class="primary" type="submit">들어가기</button></form>' +
+      '<hr class="sep"><form id="ff-join"><h3>가족 코드로 들어가기</h3><p class="note">가족이 알려 준 초대 코드를 그대로 붙여 넣어 주세요.</p><input type="text" id="fj-code" maxlength="40" autocapitalize="characters" autocomplete="off" placeholder="예: AB3K9Z-XXXXX-XXXXX-XXXXX-XXXXX" aria-label="초대 코드"><button class="primary" type="submit">들어가기</button></form>' +
       err + '<button type="button" class="link" data-act="logout">다른 계정으로 로그인</button></div>';
   }
   const su = a.mode === 'signup';
@@ -2174,15 +2273,20 @@ function hideAuth() { const el = $('#auth'); el.hidden = true; el.innerHTML = ''
 async function startCloud() {
   DB = Cloud; S.storage = true;
   S.visits = await DB.all('visits'); S.parks = await DB.all('parks');
+  Cloud.onPhotos = refreshPhotosSoon;
   hideAuth(); S.loaded = true; rebuild(); renderAll(); startPoll();
   const b = $('#acct'); b.hidden = false; b.textContent = Cloud.name + ' · ' + Cloud.fam.name;
+}
+async function enterFamily(f) {
+  Cloud.useFamily(f);
+  if (!Cloud.hasKey()) { showAuth('key'); return; }
+  try { await startCloud(); } catch (err) { if (err && err.locked) showAuth('key', '초대 코드가 맞지 않아요. 다시 확인해 주세요.'); else throw err; }
 }
 async function enterAfterLogin() {
   const fs = await Cloud.families();
   if (!fs.length) { showAuth('family'); return; }
   const saved = Cloud.savedFam();
-  Cloud.useFamily(fs.find((x) => x.id === saved) || fs[0]);
-  await startCloud();
+  await enterFamily(fs.find((x) => x.id === saved) || fs[0]);
 }
 async function authSubmit(form) {
   if (S.busy) return;
@@ -2197,11 +2301,21 @@ async function authSubmit(form) {
       S.busy = false; await enterAfterLogin();
     } else {
       const my = Cloud.name || (Cloud.user && Cloud.user.email ? Cloud.user.email.split('@')[0] : '나');
+      if (form.id === 'fk') {
+        const raw = $('#fk-code').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const sec = raw.length >= 26 ? raw.slice(6, 26) : raw;
+        if (!Cloud.setSecret(sec)) throw new Error('초대 코드를 끝까지 입력해 주세요.');
+        S.busy = false;
+        try { await startCloud(); } catch (err) { if (err && err.locked) { Cloud.clearSecret(); throw new Error('초대 코드가 맞지 않아요. 다시 확인해 주세요.'); } throw err; }
+        return;
+      }
       let f;
       if (form.id === 'ff-new') f = await Cloud.createFamily($('#fn-name').value.trim() || my + '네', my);
-      else { const c = $('#fj-code').value.trim(); if (!c) throw new Error('가족 코드를 써 주세요.'); f = await Cloud.joinFamily(c, my); }
-      Cloud.useFamily({ id: f.id, name: f.name, code: f.code, me: my });
-      S.busy = false; await startCloud();
+      else { const c = $('#fj-code').value.trim(); if (!c) throw new Error('초대 코드를 써 주세요.'); f = await Cloud.joinFamily(c, my); }
+      Cloud.useFamily({ id: f.id, name: f.name, code: f.code, enc: !!f.enc, me: my });
+      S.busy = false;
+      if (form.id === 'ff-new') { showAuth('invite'); return; }
+      await enterFamily({ id: f.id, name: f.name, code: f.code, enc: !!f.enc, me: my });
     }
   } catch (err) { setErr(err && err.message ? err.message : '문제가 생겼어요.'); }
   finally { S.busy = false; if (btn && btn.isConnected) btn.disabled = false; }
