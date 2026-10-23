@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#B9E4FF">
 <title>놀이공원 스티커북</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="스티커북">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Jua&display=swap">
@@ -855,6 +861,12 @@ h1 { margin: 0; font: 400 30px/1.15 var(--font-display); text-wrap: balance; }
 .svw-foot { text-align: center; }
 [data-act="sv-opt"][aria-pressed="true"] { opacity: 1; background: var(--accent); color: var(--accent-ink); }
 [data-act="sv-opt"][aria-pressed="true"]::before { content: '✓ '; }
+.instbar { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; background: var(--sheet); border: 3px solid var(--edge); border-radius: 16px; box-shadow: 0 3px 0 var(--edge); font-size: 14px; }
+.instbar span { flex: 1; min-width: 0; }
+.instbar .ix { flex: none; border: 0; background: none; box-shadow: none; font-size: 18px; padding: 6px 8px; cursor: pointer; color: var(--ink-soft); }
+.insteps { margin: 8px 0; padding-left: 22px; display: grid; gap: 8px; }
+.insteps li { line-height: 1.5; }
+.insteps b { color: var(--pink); }
 .catbar { display: flex; gap: 8px; margin-top: 10px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
 .catbar button { flex: none; min-height: 44px; padding: 4px 14px; border: 3px solid var(--edge); border-radius: 999px; background: var(--sheet); color: var(--ink); font: 400 16px var(--font-display); cursor: pointer; white-space: nowrap; }
 .catbar button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); box-shadow: 0 3px 0 var(--edge); }
@@ -1076,6 +1088,7 @@ details.more[open] > summary::after { content: '접기 ▴'; }
   </nav>
 
   <section id="pane-map">
+    <div class="instbar" id="instbar" hidden><span>📲 홈 화면에 추가해 앱처럼 쓰기</span><button type="button" class="btn sm" data-act="install">추가하기</button><button type="button" class="ix" data-act="inst-no" aria-label="다시 보지 않기">✕</button></div>
     <p class="hint" id="maphint"></p>
     <form class="search" id="sform" role="search" style="margin-top:10px">
       <input type="search" id="q" placeholder="공원 찾기 (예: 디즈니)" autocomplete="off" enterkeyhint="search" aria-label="공원 찾기">
@@ -1098,6 +1111,7 @@ details.more[open] > summary::after { content: '접기 ▴'; }
 
   <div class="foot">
     <span id="foot"></span>
+    <button type="button" class="btn ghost sm" data-act="install" id="installbtn" hidden>📲 홈 화면에 앱 추가</button>
     <button type="button" class="btn sm" data-act="share" id="sharebtn">📣 친구에게 추천하기</button>
     <button type="button" class="btn ghost sm" id="acct" data-act="acct" hidden></button>
     <details class="tools">
@@ -2306,6 +2320,61 @@ async function showShare(sid, keyTxt) {
   }
 }
 
+/* ---------- 홈 화면에 추가 ---------- */
+let instPrompt = null;
+const UA = navigator.userAgent || '';
+const isIOS = /iPhone|iPad|iPod/.test(UA) || (/Macintosh/.test(UA) && navigator.maxTouchPoints > 1);
+const isAndroid = /Android/.test(UA);
+const inApp = /KAKAOTALK|Instagram|FBAN|FBAV|NAVER\(inapp|Line\/|DaumApps|everytimeApp|Whale\/.*inapp/i.test(UA) ? (/KAKAOTALK/i.test(UA) ? 'kakao' : /Instagram/i.test(UA) ? 'insta' : /NAVER/i.test(UA) ? 'naver' : 'other') : '';
+function isStandalone() { try { return matchMedia('(display-mode: standalone)').matches || navigator.standalone === true; } catch (e) { return false; } }
+function lsGet2(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet2(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* 무시 */ } }
+function updateInstallUI() {
+  const can = !isStandalone() && (isIOS || isAndroid || !!instPrompt);
+  const b = $('#installbtn'); if (b) b.hidden = !can;
+  const bar = $('#instbar'); if (bar) bar.hidden = !(can && (isIOS || isAndroid) && !lsGet2('tp-inst-no'));
+}
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); instPrompt = e; updateInstallUI(); });
+window.addEventListener('appinstalled', () => { instPrompt = null; lsSet2('tp-inst-no', '1'); updateInstallUI(); toast('홈 화면에 추가했어요!'); });
+async function doInstall() {
+  if (instPrompt && !inApp) {
+    const e = instPrompt; instPrompt = null;
+    try { await e.prompt(); const r = await e.userChoice; if (r && r.outcome === 'accepted') { lsSet2('tp-inst-no', '1'); } } catch (err) { /* 무시 */ }
+    updateInstallUI(); return;
+  }
+  openSheet({ type: 'install' });
+}
+function installHTML() {
+  const url = shareURL();
+  let body;
+  if (inApp === 'kakao') {
+    body = '<p>카카오톡 안에서는 홈 화면에 추가할 수 없어요. 먼저 기본 브라우저로 열어 주세요.</p>' +
+      '<a class="btn primary" style="display:block;text-align:center;text-decoration:none" href="kakaotalk://web/openExternal?url=' + encodeURIComponent(url) + '">기본 브라우저로 열기</a>' +
+      '<p class="note">열린 브라우저에서 다시 "홈 화면에 앱 추가"를 눌러 주세요.</p>';
+  } else if (inApp) {
+    body = '<p>' + (inApp === 'insta' ? '인스타그램' : inApp === 'naver' ? '네이버 앱' : '이 앱') + ' 안에서는 홈 화면에 추가할 수 없어요. 먼저 브라우저로 열어 주세요.</p>' +
+      '<ol class="insteps"><li>화면 오른쪽 위(또는 아래)의 <b>⋯ 메뉴</b>를 눌러요.</li><li><b>' + (isIOS ? 'Safari로 열기' : '외부 브라우저로 열기 / 다른 브라우저로 열기') + '</b>를 골라요.</li><li>열린 브라우저에서 다시 "홈 화면에 앱 추가"를 눌러요.</li></ol>' +
+      (isAndroid ? '<a class="btn primary" style="display:block;text-align:center;text-decoration:none" href="intent://' + url.replace(/^https?:\/\//, '') + '#Intent;scheme=https;package=com.android.chrome;end">크롬으로 열기</a>' : '') +
+      '<button type="button" class="btn ghost" data-act="inst-copy">주소 복사하기</button>';
+  } else if (isIOS) {
+    const safari = !/CriOS|FxiOS|EdgiOS|Whale/i.test(UA);
+    body = '<ol class="insteps">' +
+      (safari ? '<li>화면 아래(또는 위)의 <b>공유 버튼</b> <span aria-hidden="true">⬆️</span>을 눌러요. (네모에서 화살표가 나오는 모양)</li>' : '<li>주소창 옆의 <b>공유 버튼</b> <span aria-hidden="true">⬆️</span>을 눌러요.</li>') +
+      '<li>목록을 조금 내려서 <b>홈 화면에 추가</b>를 눌러요.</li><li>오른쪽 위 <b>추가</b>를 누르면 끝!</li></ol>' +
+      '<p class="note"><b>아이폰은 홈 화면 앱에서 처음 열 때 다시 로그인</b>하고, 스티커북이 암호화돼 있으면 <b>초대 코드도 한 번 더 입력</b>해야 해요. 초대 코드를 미리 복사해 두세요.</p>' +
+      (!safari ? '<p class="note">메뉴에 없으면 Safari에서 이 주소를 열어 같은 방법으로 해 주세요.</p>' : '');
+  } else if (/SamsungBrowser/i.test(UA)) {
+    body = '<ol class="insteps"><li>화면 아래 <b>≡ 메뉴</b>를 눌러요.</li><li><b>현재 페이지 추가 → 홈 화면</b>을 골라요.</li><li><b>추가</b>를 누르면 끝!</li></ol>';
+  } else if (isAndroid) {
+    body = '<ol class="insteps"><li>오른쪽 위 <b>⋮ 메뉴</b>를 눌러요.</li><li><b>홈 화면에 추가</b> (또는 <b>앱 설치</b>)를 골라요.</li><li><b>설치 / 추가</b>를 누르면 끝!</li></ol>';
+  } else {
+    body = '<p>폰으로 이 주소를 열면 홈 화면에 앱처럼 추가할 수 있어요.</p><p class="code sm" style="font-size:15px;overflow-wrap:anywhere">' + esc(url) + '</p><button type="button" class="btn ghost" data-act="inst-copy">주소 복사하기</button>' +
+      '<p class="note">컴퓨터 크롬에서는 주소창 오른쪽의 설치 아이콘으로 앱처럼 쓸 수 있어요.</p>';
+  }
+  return '<div class="layer" data-act="close-layer"><div class="panel" role="dialog" aria-modal="true" aria-labelledby="in-t">' +
+    '<div class="dhead"><div><h2 id="in-t">홈 화면에 앱 추가</h2><p>아이콘으로 바로 열려요</p></div><button class="x" data-act="close">닫기</button></div>' +
+    '<div class="who">' + body + '</div></div></div>';
+}
 const APP_URL = 'https://jj21477.github.io/themepark-stickers/';
 function shareURL() { try { if (/^https?:$/.test(location.protocol)) return location.origin + location.pathname; } catch (e) { /* 무시 */ } return APP_URL; }
 const SHARE_TEXT = '놀이공원 다녀오면 스티커 한 장 ⭐\n날짜·사진·한 줄 평가를 지도 위에 스티커로 붙이는 가족용 앱이에요. 부모와 아이가 함께 쓸 수 있고, 기록은 가족 암호로 잠겨 저장돼요.';
@@ -2358,6 +2427,7 @@ function renderSheet() {
     const v = S.visits.find((x) => x.id === s.visitId); if (!v) { closeSheet(); return; }
     host.innerHTML = reviewSheetHTML(v);
   } else if (s.type === 'sharev') host.innerHTML = shareVHTML(s);
+  else if (s.type === 'install') host.innerHTML = installHTML();
   else if (s.type === 'share') host.innerHTML = shareHTML();
   else if (s.type === 'acct') host.innerHTML = acctHTML();
   else host.innerHTML = formHTML(s.parkId);
@@ -2467,6 +2537,9 @@ document.addEventListener('click', (e) => {
       try { await Cloud.renameFamily(($('#rn-fam').value || '').trim(), ($('#rn-me').value || '').trim()); toast('이름을 다시 저장했어요.'); S.members = await Cloud.members(); S.myFams = await Cloud.families(); renderSheet(); const b = $('#acct'); b.textContent = Cloud.name + ' · ' + Cloud.fam.name; }
       catch (err) { toast(err && err.message ? (/rename_family|function/.test(err.message) ? '서버 설정(SQL)을 먼저 업데이트해 주세요.' : err.message) : '이름을 바꾸지 못했어요.'); }
     })(); break;
+    case 'install': doInstall(); break;
+    case 'inst-no': lsSet2('tp-inst-no', '1'); updateInstallUI(); break;
+    case 'inst-copy': try { navigator.clipboard.writeText(shareURL()).then(() => toast('주소를 복사했어요.'), () => toast('주소를 길게 눌러 복사해 주세요.')); } catch (err) { toast('주소를 길게 눌러 복사해 주세요.'); } break;
     case 'share': shareApp(); break;
     case 'share-visit': {
       const v = S.visits.find((x) => x.id === id); if (!v) break;
@@ -2750,6 +2823,7 @@ async function bootCloud() {
 
 /* ---------- 시작 ---------- */
 async function init() {
+  updateInstallUI();
   try { const sid = new URLSearchParams(location.search).get('s'); if (sid) { await showShare(sid, location.hash.replace(/^#/, '')); return; } } catch (e) { /* 무시 */ }
   $('#deco').innerHTML = ['lotteworld-seoul', 'everland', 'wb-studio-london'].map((id) => {
     const p = CATALOG.find((x) => x.id === id);

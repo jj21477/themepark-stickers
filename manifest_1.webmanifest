@@ -1,0 +1,16 @@
+{
+  "name": "놀이공원 스티커북",
+  "short_name": "스티커북",
+  "description": "아이와 다녀온 놀이공원을 지도 위에 스티커로 모으는 가족 앱",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#E6F5FF",
+  "theme_color": "#B9E4FF",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
