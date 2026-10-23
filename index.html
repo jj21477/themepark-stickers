@@ -1014,8 +1014,15 @@ details.visit > summary .cnt { position: absolute; right: -6px; bottom: -6px; mi
 .lnav.l { left: 8px; } .lnav.r { right: 8px; }
 .lcount { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); padding: 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, .88); color: #1E2A5E; font: 400 16px var(--font-display); z-index: 2; }
 details.more { display: flex; flex-direction: column; gap: 14px; }
-details.more > summary { cursor: pointer; font: 400 18px var(--font-display); min-height: 44px; display: flex; align-items: center; }
-details.more[open] > summary { margin-bottom: 4px; }
+details.more > summary { list-style: none; cursor: pointer; font: 400 17px var(--font-display); min-height: 52px; padding: 6px 12px; display: flex; align-items: center; gap: 8px; border: 3px dashed var(--edge); border-radius: 16px; background: rgba(255, 255, 255, .7); }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary::before { content: '+'; flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); border: 2.5px solid var(--edge); font: 400 20px/1 var(--font-display); }
+details.more > summary::after { content: '펼치기 ▾'; flex: none; margin-left: auto; padding: 2px 10px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); border: 2px solid var(--edge); font: 400 14px var(--font-display); white-space: nowrap; }
+details.more > summary .mt { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; white-space: nowrap; }
+details.more > summary .mt small { font: 400 12px var(--font-body, inherit); color: var(--ink-soft); }
+details.more[open] > summary { margin-bottom: 4px; border-style: solid; }
+details.more[open] > summary::before { content: '–'; }
+details.more[open] > summary::after { content: '접기 ▴'; }
 .who .code.sm { font-size: 20px; letter-spacing: .04em; overflow-wrap: anywhere; }
 </style>
 </head>
@@ -1057,6 +1064,7 @@ details.more[open] > summary { margin-bottom: 4px; }
 
   <div class="foot">
     <span id="foot"></span>
+    <button type="button" class="btn sm" data-act="share" id="sharebtn">📣 친구에게 추천하기</button>
     <button type="button" class="btn ghost sm" id="acct" data-act="acct" hidden></button>
     <details class="tools">
       <summary>기록 백업하기</summary>
@@ -2005,7 +2013,7 @@ function reviewFields(v) {
     '<div class="field"><label class="rq" for="r-fav">제일 재미있었던 건? <small>(안 써도 돼요)</small></label><input type="text" id="r-fav" maxlength="60" placeholder="예: 롤러코스터, 츄러스" value="' + esc(v.fav || '') + '"></div>' +
     '<div class="field"><span class="rq">얼마나 무서웠어요?</span><div class="chips" role="radiogroup" aria-label="무서운 정도">' + scary + '</div></div>' +
     '<div class="field"><span class="rq">또 가고 싶어요?</span><div class="chips" role="radiogroup" aria-label="또 가고 싶은지">' + again + '</div></div>' +
-    '<details class="more"' + (extra ? ' open' : '') + '><summary>더 기억하고 싶다면</summary>' +
+    '<details class="more"' + (extra ? ' open' : '') + '><summary><span class="mt">더 기억하고 싶다면<small>누구랑 · 먹은 것 · 다음 계획</small></span></summary>' +
     '<div class="field"><span class="rq">누구랑 갔어요?</span><div class="chips" role="group" aria-label="함께 간 사람">' + who + '</div></div>' +
     '<div class="field"><label class="rq" for="r-food">맛있었던 것</label><input type="text" id="r-food" maxlength="60" placeholder="예: 츄러스, 핫도그" value="' + esc(v.food || '') + '"></div>' +
     '<div class="field"><label class="rq" for="r-next">다음에 꼭 해 볼 것</label><input type="text" id="r-next" maxlength="60" placeholder="예: 자이로드롭 타기" value="' + esc(v.next || '') + '"></div></details></div>';
@@ -2087,6 +2095,28 @@ function reviewSheetHTML(v) {
     reviewFields(v) +
     '<div class="actions"><button type="button" class="ghost" data-act="close">그만두기</button><button type="submit" class="primary" id="e-save">저장</button></div></form></div></div>';
 }
+const APP_URL = 'https://jj21477.github.io/themepark-stickers/';
+function shareURL() { try { if (/^https?:$/.test(location.protocol)) return location.origin + location.pathname; } catch (e) { /* 무시 */ } return APP_URL; }
+const SHARE_TEXT = '놀이공원 다녀오면 스티커 한 장 ⭐\n날짜·사진·한 줄 평가를 지도 위에 스티커로 붙이는 가족용 앱이에요. 부모와 아이가 함께 쓸 수 있고, 기록은 가족 암호로 잠겨 저장돼요.';
+async function shareApp() {
+  const data = { title: '놀이공원 스티커북', text: SHARE_TEXT, url: shareURL() };
+  if (navigator.share) {
+    try { await navigator.share(data); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  openSheet({ type: 'share' });
+}
+function shareHTML() {
+  const u = shareURL(), t = SHARE_TEXT + '\n' + u, q = encodeURIComponent;
+  return '<div class="layer" data-act="close-layer"><div class="panel" role="dialog" aria-modal="true" aria-labelledby="sh-t">' +
+    '<div class="dhead"><div><h2 id="sh-t">친구에게 추천하기</h2><p>스티커북을 소개해 보세요</p></div><button class="x" data-act="close">닫기</button></div>' +
+    '<div class="who"><p class="note" style="white-space:pre-line">' + esc(t) + '</p></div>' +
+    '<div class="actions" style="flex-direction:column;align-items:stretch">' +
+    '<button type="button" class="primary" data-act="share-copy">소개글과 링크 복사 (카카오톡·인스타에 붙여넣기)</button>' +
+    '<a class="btn ghost" href="sms:?&body=' + q(t) + '">문자로 보내기</a>' +
+    '<a class="btn ghost" target="_blank" rel="noopener" href="https://www.facebook.com/sharer/sharer.php?u=' + q(u) + '">페이스북에 공유</a>' +
+    '<a class="btn ghost" target="_blank" rel="noopener" href="https://twitter.com/intent/tweet?text=' + q(SHARE_TEXT) + '&url=' + q(u) + '">X(트위터)에 공유</a>' +
+    '</div></div></div>';
+}
 function acctHTML() {
   const f = Cloud.fam || {};
   return '<div class="layer" data-act="close-layer"><div class="panel" role="dialog" aria-modal="true" aria-labelledby="at">' +
@@ -2112,7 +2142,8 @@ function renderSheet() {
   } else if (s.type === 'review') {
     const v = S.visits.find((x) => x.id === s.visitId); if (!v) { closeSheet(); return; }
     host.innerHTML = reviewSheetHTML(v);
-  } else if (s.type === 'acct') host.innerHTML = acctHTML();
+  } else if (s.type === 'share') host.innerHTML = shareHTML();
+  else if (s.type === 'acct') host.innerHTML = acctHTML();
   else host.innerHTML = formHTML(s.parkId);
 }
 const MAXPICS = 10;
@@ -2216,6 +2247,12 @@ document.addEventListener('click', (e) => {
       Cloud.members().then((m) => { S.members = m; if (S.sheet && S.sheet.type === 'acct') renderSheet(); });
       Cloud.families().then((fs) => { S.myFams = fs; if (S.sheet && S.sheet.type === 'acct') renderSheet(); }).catch(() => {});
       break;
+    case 'share': shareApp(); break;
+    case 'share-copy': {
+      const txt = SHARE_TEXT + '\n' + shareURL();
+      try { navigator.clipboard.writeText(txt).then(() => toast('복사했어요. 카카오톡이나 인스타에 붙여넣어 보내세요.'), () => toast('복사가 안 돼요. 직접 적어 주세요.')); } catch (err) { toast('복사가 안 돼요. 직접 적어 주세요.'); }
+      break;
+    }
     case 'copy-code':
       try { navigator.clipboard.writeText(Cloud.invite()).then(() => toast('코드를 복사했어요.'), () => toast('복사가 안 돼요. 코드를 직접 적어 주세요.')); } catch (err) { toast('복사가 안 돼요. 코드를 직접 적어 주세요.'); }
       break;
