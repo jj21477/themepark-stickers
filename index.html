@@ -821,6 +821,9 @@ h1 { margin: 0; font: 400 30px/1.15 var(--font-display); text-wrap: balance; }
 .z-lab .pin .pl { display: block; }
 .pin.gray .pl { color: var(--ink-soft); }
 .sres { max-height: 34vh; overflow-y: auto; }
+[data-act="sv-opt"] { opacity: .75; }
+[data-act="sv-opt"][aria-pressed="true"] { opacity: 1; background: var(--accent); color: var(--accent-ink); }
+[data-act="sv-opt"][aria-pressed="true"]::before { content: '✓ '; }
 .catbar { display: flex; gap: 8px; margin-top: 10px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
 .catbar button { flex: none; min-height: 44px; padding: 4px 14px; border: 3px solid var(--edge); border-radius: 999px; background: var(--sheet); color: var(--ink); font: 400 16px var(--font-display); cursor: pointer; white-space: nowrap; }
 .catbar button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); box-shadow: 0 3px 0 var(--edge); }
@@ -2054,6 +2057,7 @@ function visitCard(v, p, idx) {
     '<div class="vdate">' + fmtKoLong(v.date) + '</div>' + pics +
     (v.memo ? '<p class="memo">' + esc(v.memo) + '</p>' : '') + reviewView(v) +
     (v.by ? '<p class="byline">' + esc(v.by) + '님이 붙였어요</p>' : '') +
+    '<button type="button" class="btn sm" data-act="share-visit" data-id="' + esc(v.id) + '">📣 이 기록 공유하기</button>' +
     '<button type="button" class="btn ghost sm" data-act="review" data-id="' + esc(v.id) + '">기록 고치기 (사진·날짜·메모·평가)</button>' +
     '<button class="link danger" data-act="del" data-id="' + esc(v.id) + '">' + (S.confirm === v.id ? '정말 지울까요? 한 번 더 누르면 지워져요' : '이 기록 지우기') + '</button></div></details></li>';
 }
@@ -2095,6 +2099,135 @@ function reviewSheetHTML(v) {
     reviewFields(v) +
     '<div class="actions"><button type="button" class="ghost" data-act="close">그만두기</button><button type="submit" class="primary" id="e-save">저장</button></div></form></div></div>';
 }
+/* ---------- 기록 공유하기 (스티커 내용을 친구에게) ---------- */
+const SHARE_FONT = "'Jua','Apple SD Gothic Neo','Malgun Gothic','Noto Sans CJK KR',sans-serif";
+function wrapLines(ctx, text, maxW, maxLines) {
+  const out = []; let line = '';
+  for (const ch of String(text)) {
+    if (ch === '\n') { out.push(line); line = ''; continue; }
+    if (ctx.measureText(line + ch).width > maxW) { out.push(line); line = ch === ' ' ? '' : ch; } else line += ch;
+  }
+  if (line) out.push(line);
+  if (out.length > maxLines) { out.length = maxLines; out[maxLines - 1] = out[maxLines - 1].replace(/.?$/, '…'); }
+  return out;
+}
+function shareRows(v, o) {
+  const r = [];
+  if (v.scary) r.push(['얼마나 무서웠어요?', SCARY_TXT[v.scary]]);
+  if (v.again) r.push(['또 가고 싶어요?', AGAIN_TXT[v.again]]);
+  if (v.fav) r.push(['제일 재미있었던 건', v.fav]);
+  if (v.food) r.push(['맛있었던 것', v.food]);
+  if (v.next) r.push(['다음에 꼭 해 볼 것', v.next]);
+  if (o.who && v.who && v.who.length) r.push(['함께 간 사람', v.who.join(', ')]);
+  return r;
+}
+function visitShareText(v, p, o) {
+  const L = ['🎢 ' + p.name + ' 다녀왔어요! (' + fmtKoLong(v.date) + ')'];
+  if (v.title) L.push('“' + v.title + '”');
+  if (v.rating) L.push('재미 ' + '★'.repeat(v.rating) + '☆'.repeat(5 - v.rating) + ' ' + v.rating + '/5');
+  shareRows(v, o).forEach((x) => L.push('· ' + x[0] + ' ' + x[1]));
+  if (o.memo && v.memo) L.push('\n' + v.memo);
+  L.push('\n놀이공원 스티커북으로 기록했어요 👉 ' + shareURL());
+  return L.join('\n');
+}
+async function loadImg(src) { return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; }); }
+async function visitShareImage(v, p, o) {
+  try { await document.fonts.load('40px Jua'); } catch (e) { /* 무시 */ }
+  const svg = stickerSVG(p).replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ');
+  let stk = null, ph = null;
+  try { stk = await loadImg('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)); } catch (e) { /* 무시 */ }
+  if (o.photo) {
+    const u = photoURLs(v)[0];
+    if (u) { try { const b = await (await fetch(u)).blob(); ph = await createImageBitmap(b); } catch (e) { ph = null; } }
+  }
+  const W = 1080, PX = 96, rows = shareRows(v, o);
+  const draw = (ctx, dry) => {
+    let y = 0;
+    const set = (size, color, align) => { ctx.font = '400 ' + size + 'px ' + SHARE_FONT; ctx.fillStyle = color; ctx.textAlign = align || 'center'; ctx.textBaseline = 'top'; };
+    const text = (t, size, color, lh, maxLines, align) => {
+      set(size, color, align); const lines = wrapLines(ctx, t, W - PX * 2, maxLines || 2);
+      lines.forEach((ln) => { if (!dry) ctx.fillText(ln, align === 'left' ? PX : W / 2, y); y += lh; });
+    };
+    y = 110; text('놀이공원 스티커북', 34, '#5A6490', 44, 1);
+    y += 14; if (!dry && stk) ctx.drawImage(stk, W / 2 - 120, y, 240, 240); y += 270;
+    text(p.name, 68, '#1E2A5E', 82, 2);
+    text([placeLabel(p), p.region].filter(Boolean).join(' · '), 32, '#5A6490', 44, 1);
+    text(fmtKoLong(v.date), 32, '#5A6490', 48, 1);
+    if (ph) {
+      y += 24; const pw = W - PX * 2, phh = 560;
+      if (!dry) {
+        ctx.save(); ctx.beginPath(); ctx.roundRect(PX, y, pw, phh, 28); ctx.clip();
+        const s = Math.max(pw / ph.width, phh / ph.height), dw = ph.width * s, dh = ph.height * s;
+        ctx.drawImage(ph, PX + (pw - dw) / 2, y + (phh - dh) / 2, dw, dh); ctx.restore();
+        ctx.lineWidth = 8; ctx.strokeStyle = '#1E2A5E'; ctx.beginPath(); ctx.roundRect(PX, y, pw, phh, 28); ctx.stroke();
+      }
+      y += phh + 16;
+    }
+    y += 24;
+    if (v.title) { text('“' + v.title + '”', 52, '#1E2A5E', 68, 2); y += 6; }
+    if (v.rating) { text('★'.repeat(v.rating) + '☆'.repeat(5 - v.rating), 76, '#F5A623', 96, 1); }
+    y += 10;
+    rows.forEach((x) => { text(x[0], 28, '#E0457B', 38, 1, 'left'); text(x[1], 40, '#1E2A5E', 54, 2, 'left'); y += 14; });
+    if (o.memo && v.memo) { y += 4; text(v.memo, 38, '#33406F', 54, 5, 'left'); }
+    y += 40; text('나도 스티커북 만들기 👉 ' + shareURL().replace(/^https?:\/\//, ''), 28, '#5A6490', 40, 1);
+    return y + 60;
+  };
+  const sc = document.createElement('canvas'); sc.width = W; sc.height = 10;
+  const H = Math.max(1080, Math.round(draw(sc.getContext('2d'), true)));
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const ctx = cv.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#BFE6FF'); g.addColorStop(1, '#FFF3C4'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#1E2A5E'; ctx.lineWidth = 8; ctx.beginPath(); ctx.roundRect(40, 40, W - 80, H - 80, 48); ctx.fill(); ctx.stroke();
+  draw(ctx, false);
+  return new Promise((res) => cv.toBlob((b) => res(b), 'image/png'));
+}
+function shareVHTML(s) {
+  const v = S.visits.find((x) => x.id === s.visitId), p = v && S.byId.get(v.parkId); if (!v || !p) return '';
+  const hasPhoto = photoURLs(v).length > 0, hasMemo = !!v.memo, hasWho = !!(v.who && v.who.length);
+  const tg = (k, label) => '<button type="button" class="btn ghost sm" data-act="sv-opt" data-k="' + k + '" aria-pressed="' + (!!s.opt[k]) + '">' + label + '</button>';
+  return '<div class="layer" data-act="close-layer"><div class="panel" role="dialog" aria-modal="true" aria-labelledby="sv-t">' +
+    '<div class="dhead"><div><h2 id="sv-t">' + esc(p.name) + ' 공유하기</h2><p>카카오톡·인스타 등으로 이 기록을 소개해요</p></div><button class="x" data-act="close">닫기</button></div>' +
+    '<img id="sv-img" class="svimg" alt="공유 카드 미리보기" style="width:100%;height:auto;max-height:60vh;object-fit:contain;border-radius:18px;border:3px solid var(--edge);background:#fff;min-height:120px">' +
+    '<p class="note">넣고 뺄 것을 골라 보세요. 가족 이름과 계정 정보는 들어가지 않아요.</p>' +
+    '<div class="chips" style="gap:8px;display:flex;flex-wrap:wrap">' + (hasPhoto ? tg('photo', '사진') : '') + (hasMemo ? tg('memo', '한 줄 메모') : '') + (hasWho ? tg('who', '함께 간 사람') : '') + '</div>' +
+    '<div class="actions" style="flex-direction:column;align-items:stretch">' +
+    '<button type="button" class="primary" data-act="sv-send" data-m="image">이미지로 공유</button>' +
+    '<button type="button" class="btn ghost" data-act="sv-send" data-m="text">글로 공유</button>' +
+    '<button type="button" class="btn ghost" data-act="sv-copy">글 복사</button>' +
+    '<button type="button" class="btn ghost" data-act="sv-save">이미지 저장</button></div></div></div>';
+}
+let svTok = 0;
+async function updateSV() {
+  const s = S.sheet; if (!s || s.type !== 'sharev') return;
+  const v = S.visits.find((x) => x.id === s.visitId), p = v && S.byId.get(v.parkId); if (!v || !p) return;
+  const tok = ++svTok;
+  try {
+    const b = await visitShareImage(v, p, s.opt); if (tok !== svTok || !S.sheet || S.sheet.type !== 'sharev') return;
+    s.blob = b; const img = $('#sv-img'); if (img) { if (s.url) URL.revokeObjectURL(s.url); s.url = URL.createObjectURL(b); img.src = s.url; }
+  } catch (e) { /* 무시 */ }
+}
+async function svSend(mode) {
+  const s = S.sheet, v = S.visits.find((x) => x.id === s.visitId), p = v && S.byId.get(v.parkId); if (!v || !p) return;
+  const text = visitShareText(v, p, s.opt);
+  try {
+    if (mode === 'image') {
+      if (!s.blob) await updateSV();
+      const file = new File([s.blob], '스티커-' + p.name + '.png', { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: p.name, text }); return; }
+      svDownload(); toast('이미지를 저장했어요. 카카오톡이나 인스타에서 사진으로 보내세요.'); return;
+    }
+    if (navigator.share) { await navigator.share({ title: p.name, text }); return; }
+    svCopy();
+  } catch (e) { if (!(e && e.name === 'AbortError')) toast('공유가 안 돼요. 저장하거나 복사해서 보내 주세요.'); }
+}
+function svDownload() {
+  const s = S.sheet; if (!s || !s.blob) return;
+  const a = document.createElement('a'); a.href = URL.createObjectURL(s.blob); a.download = 'sticker.png'; document.body.appendChild(a); a.click(); a.remove();
+}
+function svCopy() {
+  const s = S.sheet, v = S.visits.find((x) => x.id === s.visitId), p = v && S.byId.get(v.parkId); if (!v || !p) return;
+  try { navigator.clipboard.writeText(visitShareText(v, p, s.opt)).then(() => toast('복사했어요. 붙여넣어 보내세요.'), () => toast('복사가 안 돼요.')); } catch (e) { toast('복사가 안 돼요.'); }
+}
+
 const APP_URL = 'https://jj21477.github.io/themepark-stickers/';
 function shareURL() { try { if (/^https?:$/.test(location.protocol)) return location.origin + location.pathname; } catch (e) { /* 무시 */ } return APP_URL; }
 const SHARE_TEXT = '놀이공원 다녀오면 스티커 한 장 ⭐\n날짜·사진·한 줄 평가를 지도 위에 스티커로 붙이는 가족용 앱이에요. 부모와 아이가 함께 쓸 수 있고, 기록은 가족 암호로 잠겨 저장돼요.';
@@ -2142,7 +2275,8 @@ function renderSheet() {
   } else if (s.type === 'review') {
     const v = S.visits.find((x) => x.id === s.visitId); if (!v) { closeSheet(); return; }
     host.innerHTML = reviewSheetHTML(v);
-  } else if (s.type === 'share') host.innerHTML = shareHTML();
+  } else if (s.type === 'sharev') { host.innerHTML = shareVHTML(s); updateSV(); }
+  else if (s.type === 'share') host.innerHTML = shareHTML();
   else if (s.type === 'acct') host.innerHTML = acctHTML();
   else host.innerHTML = formHTML(s.parkId);
 }
@@ -2248,6 +2382,14 @@ document.addEventListener('click', (e) => {
       Cloud.families().then((fs) => { S.myFams = fs; if (S.sheet && S.sheet.type === 'acct') renderSheet(); }).catch(() => {});
       break;
     case 'share': shareApp(); break;
+    case 'share-visit': {
+      const v = S.visits.find((x) => x.id === id); if (!v) break;
+      S.sheet = null; openSheet({ type: 'sharev', visitId: id, opt: { photo: false, memo: true, who: false } }); break;
+    }
+    case 'sv-opt': { const k = t.getAttribute('data-k'); S.sheet.opt[k] = !S.sheet.opt[k]; t.setAttribute('aria-pressed', String(!!S.sheet.opt[k])); updateSV(); break; }
+    case 'sv-send': svSend(t.getAttribute('data-m')); break;
+    case 'sv-copy': svCopy(); break;
+    case 'sv-save': (async () => { if (!S.sheet.blob) await updateSV(); svDownload(); })(); break;
     case 'share-copy': {
       const txt = SHARE_TEXT + '\n' + shareURL();
       try { navigator.clipboard.writeText(txt).then(() => toast('복사했어요. 카카오톡이나 인스타에 붙여넣어 보내세요.'), () => toast('복사가 안 돼요. 직접 적어 주세요.')); } catch (err) { toast('복사가 안 돼요. 직접 적어 주세요.'); }
