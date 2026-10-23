@@ -820,9 +820,15 @@ h1 { margin: 0; font: 400 30px/1.15 var(--font-display); text-wrap: balance; }
 .pin .pl { display: none; position: absolute; top: calc(100% + 2px); left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 0 7px; border-radius: 9px; background: var(--sheet); border: 2px solid var(--edge); font: 400 13px/1.3 var(--font-display); color: var(--ink); }
 .z-lab .pin .pl { display: block; }
 .pin.gray .pl { color: var(--ink-soft); }
+.sres { max-height: 34vh; overflow-y: auto; }
+.catbar { display: flex; gap: 8px; margin-top: 10px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
+.catbar button { flex: none; min-height: 44px; padding: 4px 14px; border: 3px solid var(--edge); border-radius: 999px; background: var(--sheet); color: var(--ink); font: 400 16px var(--font-display); cursor: pointer; white-space: nowrap; }
+.catbar button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); box-shadow: 0 3px 0 var(--edge); }
+.sr-cat { display: inline-block; margin-left: 6px; padding: 0 8px; border-radius: 8px; background: rgba(120, 130, 160, .18); font-size: 12px; }
 .dotpin .dl { display: none; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 0 6px; border-radius: 8px; background: rgba(255, 255, 255, .92); color: #1E2A5E; border: 2px solid var(--edge); font: 400 12px/1.3 var(--font-display); }
 .z-lab2 .dotpin .dl { display: block; }
-.dotpin i { display: block; width: 18px; height: 18px; margin: 2px; border-radius: 50%; background: var(--c, var(--pink)); border: 3px solid #fff; box-shadow: 0 0 0 2px var(--edge); }
+.dotpin i { display: block; width: 12px; height: 12px; margin: 5px; border-radius: 50%; background: #A7AFC0; border: 2px solid #fff; box-shadow: 0 0 0 1.5px #7C869C; }
+.dotpin.hot i { width: 16px; height: 16px; margin: 3px; background: #6F7A94; }
 .clwrap { background: none; border: 0; }
 .cl { position: relative; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: var(--sheet); color: var(--ink); border: 3px solid var(--edge); box-shadow: 0 3px 0 var(--edge); font: 400 21px var(--font-display); }
 .cl.v { background: var(--accent); color: var(--accent-ink); }
@@ -1034,6 +1040,7 @@ details.more[open] > summary { margin-bottom: 4px; }
       <input type="search" id="q" placeholder="공원 찾기 (예: 디즈니)" autocomplete="off" enterkeyhint="search" aria-label="공원 찾기">
       <button class="btn" type="submit">찾기</button>
     </form>
+    <div class="catbar" id="catbar" role="group" aria-label="종류별로 보기"></div>
     <div class="sres" id="sres" hidden></div>
     <div class="mapbox" id="mapbox">
       <div id="map" role="region" aria-label="공원 지도"></div>
@@ -1083,72 +1090,120 @@ details.more[open] > summary { margin-bottom: 4px; }
 'use strict';
 
 /* ---------- 공원 목록 ----------
-   id, 이름, 짧은 이름, 지역, 나라(한국이면 ''), 위도, 경도, 모양, 검색어, 처음부터 스티커북에 있는 칸(1)
+   id, 이름, 짧은 이름, 지역, 나라(한국이면 ''), 위도, 경도, 모양, 검색어, 처음부터 스티커북에 있는 칸(1), 분류
    위치는 대략적인 값이다. */
 const ROWS = [
-  ['lotteworld-seoul', '롯데월드 어드벤처', '롯데월드', '서울 송파', '', 37.511, 127.098, 'castle', 'lotte 잠실', 1],
-  ['everland', '에버랜드', '에버랜드', '경기 용인', '', 37.294, 127.202, 'wheel', 'everland 삼성', 1],
-  ['seoulland', '서울랜드', '서울랜드', '경기 과천', '', 37.434, 127.020, 'coaster', 'seoulland', 1],
-  ['legoland', '레고랜드 코리아', '레고랜드', '강원 춘천', '', 37.887, 127.689, 'blocks', 'lego 레고', 1],
-  ['lotteworld-busan', '롯데월드 어드벤처 부산', '롯데월드 부산', '부산 기장', '', 35.194, 129.213, 'balloon', 'lotte', 1],
-  ['eworld', '이월드', '이월드', '대구', '', 35.853, 128.566, 'tower', '83타워 eworld', 1],
-  ['gyeongjuworld', '경주월드', '경주월드', '경북 경주', '', 35.838, 129.282, 'coaster', 'gyeongju', 1],
-  ['oworld', '대전 오월드', '오월드', '대전', '', 36.288, 127.397, 'carousel', 'oworld 동물원', 1],
-  ['wolmi', '월미테마파크', '월미', '인천', '', 37.476, 126.598, 'wave', '월미도 바이킹', 1],
-  ['caribbean', '캐리비안 베이', '캐리비안', '경기 용인', '', 37.299, 127.204, 'wave', '워터파크 물놀이 caribbean', 1],
-  ['lottewater-gimhae', '롯데워터파크 김해', '롯데워터파크', '경남 김해', '', 35.190, 128.800, 'wave', '워터파크 물놀이', 1],
-  ['shinhwa-water', '제주 신화워터파크', '신화워터', '제주 서귀포', '', 33.306, 126.323, 'wave', '워터파크 물놀이 신화월드', 1],
-  ['tokyo-disneyland', '도쿄 디즈니랜드', '도쿄 디즈니랜드', '도쿄', '일본', 35.632, 139.880, 'castle', 'disney 디즈니 미키', 1],
-  ['tokyo-disneysea', '도쿄 디즈니씨', '도쿄 디즈니씨', '도쿄', '일본', 35.626, 139.885, 'wave', 'disney 디즈니 disneysea', 1],
-  ['usj', '유니버설 스튜디오 재팬', '유니버설 재팬', '오사카', '일본', 34.665, 135.432, 'coaster', 'universal 유니버설 usj 해리포터 닌텐도 마리오 harry potter', 1],
-  ['hk-disneyland', '홍콩 디즈니랜드', '홍콩 디즈니', '홍콩', '홍콩', 22.313, 114.041, 'castle', 'disney 디즈니', 1],
-  ['usj-singapore', '유니버설 스튜디오 싱가포르', '유니버설 싱가포르', '센토사', '싱가포르', 1.254, 103.824, 'carousel', 'universal 유니버설', 1],
-  ['shanghai-disney', '상하이 디즈니랜드', '상하이 디즈니', '상하이', '중국', 31.144, 121.658, 'castle', 'disney 디즈니', 1],
-  ['disneyland-ca', '디즈니랜드 캘리포니아', '디즈니랜드 CA', '애너하임', '미국', 33.812, -117.919, 'balloon', 'disney 디즈니 california', 1],
-  ['wdw', '월트 디즈니 월드', '디즈니 월드', '올랜도', '미국', 28.418, -81.581, 'wheel', 'disney 디즈니 walt florida', 1],
-  ['wb-studio-london', '워너 브라더스 스튜디오 투어 런던', '해리포터 스튜디오', '런던 근교', '영국', 51.690, -0.419, 'castle', '해리포터 해리 포터 harry potter 호그와트 워너 warner', 1],
+  ['lotteworld-seoul', '롯데월드 어드벤처', '롯데월드', '서울 송파', '', 37.511, 127.098, 'castle', 'lotte 잠실', 1, 'theme'],
+  ['everland', '에버랜드', '에버랜드', '경기 용인', '', 37.294, 127.202, 'wheel', 'everland 삼성', 1, 'theme'],
+  ['seoulland', '서울랜드', '서울랜드', '경기 과천', '', 37.434, 127.020, 'coaster', 'seoulland', 1, 'theme'],
+  ['legoland', '레고랜드 코리아', '레고랜드', '강원 춘천', '', 37.887, 127.689, 'blocks', 'lego 레고', 1, 'theme'],
+  ['lotteworld-busan', '롯데월드 어드벤처 부산', '롯데월드 부산', '부산 기장', '', 35.194, 129.213, 'balloon', 'lotte', 1, 'theme'],
+  ['eworld', '이월드', '이월드', '대구', '', 35.853, 128.566, 'tower', '83타워 eworld', 1, 'theme'],
+  ['gyeongjuworld', '경주월드', '경주월드', '경북 경주', '', 35.838, 129.282, 'coaster', 'gyeongju', 1, 'theme'],
+  ['oworld', '대전 오월드', '오월드', '대전', '', 36.288, 127.397, 'carousel', 'oworld 동물원', 1, 'zoo'],
+  ['wolmi', '월미테마파크', '월미', '인천', '', 37.476, 126.598, 'wave', '월미도 바이킹', 1, 'theme'],
+  ['caribbean', '캐리비안 베이', '캐리비안', '경기 용인', '', 37.299, 127.204, 'wave', '워터파크 물놀이 caribbean', 1, 'water'],
+  ['lottewater-gimhae', '롯데워터파크 김해', '롯데워터파크', '경남 김해', '', 35.190, 128.800, 'wave', '워터파크 물놀이', 1, 'water'],
+  ['shinhwa-water', '제주 신화워터파크', '신화워터', '제주 서귀포', '', 33.306, 126.323, 'wave', '워터파크 물놀이 신화월드', 1, 'water'],
+  ['tokyo-disneyland', '도쿄 디즈니랜드', '도쿄 디즈니랜드', '도쿄', '일본', 35.632, 139.880, 'castle', 'disney 디즈니 미키', 1, 'theme'],
+  ['tokyo-disneysea', '도쿄 디즈니씨', '도쿄 디즈니씨', '도쿄', '일본', 35.626, 139.885, 'wave', 'disney 디즈니 disneysea', 1, 'theme'],
+  ['usj', '유니버설 스튜디오 재팬', '유니버설 재팬', '오사카', '일본', 34.665, 135.432, 'coaster', 'universal 유니버설 usj 해리포터 닌텐도 마리오 harry potter', 1, 'theme'],
+  ['hk-disneyland', '홍콩 디즈니랜드', '홍콩 디즈니', '홍콩', '홍콩', 22.313, 114.041, 'castle', 'disney 디즈니', 1, 'theme'],
+  ['usj-singapore', '유니버설 스튜디오 싱가포르', '유니버설 싱가포르', '센토사', '싱가포르', 1.254, 103.824, 'carousel', 'universal 유니버설', 1, 'theme'],
+  ['shanghai-disney', '상하이 디즈니랜드', '상하이 디즈니', '상하이', '중국', 31.144, 121.658, 'castle', 'disney 디즈니', 1, 'theme'],
+  ['disneyland-ca', '디즈니랜드 캘리포니아', '디즈니랜드 CA', '애너하임', '미국', 33.812, -117.919, 'balloon', 'disney 디즈니 california', 1, 'theme'],
+  ['wdw', '월트 디즈니 월드', '디즈니 월드', '올랜도', '미국', 28.418, -81.581, 'wheel', 'disney 디즈니 walt florida', 1, 'theme'],
+  ['wb-studio-london', '워너 브라더스 스튜디오 투어 런던', '해리포터 스튜디오', '런던 근교', '영국', 51.690, -0.419, 'castle', '해리포터 해리 포터 harry potter 호그와트 워너 warner', 1, 'theme'],
 
-  ['folk-village', '한국민속촌', '민속촌', '경기 용인', '', 37.259, 127.119, 'castle', '한옥 전통', 0],
-  ['children-grand-park', '서울 어린이대공원', '어린이대공원', '서울 광진', '', 37.549, 127.082, 'wheel', '동물원 어린이', 0],
-  ['seoul-grand-park', '서울대공원', '서울대공원', '경기 과천', '', 37.430, 127.018, 'balloon', '동물원 zoo', 0],
-  ['vivaldi-ocean', '오션월드 (비발디파크)', '오션월드', '강원 홍천', '', 37.646, 127.683, 'wave', '워터파크 물놀이 비발디', 0],
+  ['folk-village', '한국민속촌', '민속촌', '경기 용인', '', 37.259, 127.119, 'castle', '한옥 전통', 0, 'nature'],
+  ['children-grand-park', '서울 어린이대공원', '어린이대공원', '서울 광진', '', 37.549, 127.082, 'wheel', '동물원 어린이', 0, 'theme'],
+  ['seoul-grand-park', '서울대공원', '서울대공원', '경기 과천', '', 37.430, 127.018, 'balloon', '동물원 zoo', 0, 'zoo'],
+  ['vivaldi-ocean', '오션월드 (비발디파크)', '오션월드', '강원 홍천', '', 37.646, 127.683, 'wave', '워터파크 물놀이 비발디', 0, 'water'],
 
-  ['fujiq', '후지큐 하이랜드', '후지큐', '야마나시', '일본', 35.488, 138.780, 'coaster', 'fuji-q 롤러코스터 후지산', 0],
-  ['puroland', '산리오 퓨로랜드', '퓨로랜드', '도쿄 다마', '일본', 35.624, 139.428, 'balloon', 'sanrio 헬로키티 산리오', 0],
-  ['legoland-japan', '레고랜드 재팬', '레고랜드 재팬', '나고야', '일본', 35.049, 136.841, 'blocks', 'lego 레고', 0],
-  ['ghibli-park', '지브리 파크', '지브리 파크', '아이치', '일본', 35.171, 137.087, 'tower', '지브리 토토로 ghibli', 0],
-  ['nagashima', '나가시마 스파랜드', '나가시마', '미에', '일본', 35.031, 136.732, 'coaster', '롤러코스터 nagashima', 0],
-  ['huistenbosch', '하우스텐보스', '하우스텐보스', '나가사키', '일본', 33.086, 129.787, 'tower', '네덜란드 huis ten bosch', 0],
-  ['ocean-park-hk', '홍콩 오션파크', '오션파크', '홍콩', '홍콩', 22.247, 114.176, 'wheel', 'ocean park 판다', 0],
-  ['legoland-malaysia', '레고랜드 말레이시아', '레고랜드 말레이시아', '조호르바루', '말레이시아', 1.427, 103.629, 'blocks', 'lego 레고', 0],
-  ['asia-park-danang', '아시아 파크 다낭', '아시아 파크', '다낭', '베트남', 16.040, 108.227, 'wheel', 'danang 선휠', 0],
-  ['bana-hills', '바나힐 선월드', '바나힐', '다낭', '베트남', 15.995, 107.988, 'tower', '골든브릿지 ba na hills', 0],
-  ['vinwonders-nhatrang', '빈원더스 나트랑', '빈원더스', '나트랑', '베트남', 12.219, 109.245, 'coaster', 'vinpearl 빈펄', 0],
+  ['fujiq', '후지큐 하이랜드', '후지큐', '야마나시', '일본', 35.488, 138.780, 'coaster', 'fuji-q 롤러코스터 후지산', 0, 'theme'],
+  ['puroland', '산리오 퓨로랜드', '퓨로랜드', '도쿄 다마', '일본', 35.624, 139.428, 'balloon', 'sanrio 헬로키티 산리오', 0, 'theme'],
+  ['legoland-japan', '레고랜드 재팬', '레고랜드 재팬', '나고야', '일본', 35.049, 136.841, 'blocks', 'lego 레고', 0, 'theme'],
+  ['ghibli-park', '지브리 파크', '지브리 파크', '아이치', '일본', 35.171, 137.087, 'tower', '지브리 토토로 ghibli', 0, 'theme'],
+  ['nagashima', '나가시마 스파랜드', '나가시마', '미에', '일본', 35.031, 136.732, 'coaster', '롤러코스터 nagashima', 0, 'theme'],
+  ['huistenbosch', '하우스텐보스', '하우스텐보스', '나가사키', '일본', 33.086, 129.787, 'tower', '네덜란드 huis ten bosch', 0, 'theme'],
+  ['ocean-park-hk', '홍콩 오션파크', '오션파크', '홍콩', '홍콩', 22.247, 114.176, 'wheel', 'ocean park 판다', 0, 'zoo'],
+  ['legoland-malaysia', '레고랜드 말레이시아', '레고랜드 말레이시아', '조호르바루', '말레이시아', 1.427, 103.629, 'blocks', 'lego 레고', 0, 'theme'],
+  ['asia-park-danang', '아시아 파크 다낭', '아시아 파크', '다낭', '베트남', 16.040, 108.227, 'wheel', 'danang 선휠', 0, 'theme'],
+  ['bana-hills', '바나힐 선월드', '바나힐', '다낭', '베트남', 15.995, 107.988, 'tower', '골든브릿지 ba na hills', 0, 'theme'],
+  ['vinwonders-nhatrang', '빈원더스 나트랑', '빈원더스', '나트랑', '베트남', 12.219, 109.245, 'coaster', 'vinpearl 빈펄', 0, 'theme'],
 
-  ['universal-orlando', '유니버설 올랜도 리조트', '유니버설 올랜도', '올랜도', '미국', 28.472, -81.469, 'coaster', 'universal 유니버설 해리포터 마법 세계 harry potter hogwarts', 0],
-  ['universal-hollywood', '유니버설 스튜디오 할리우드', '유니버설 할리우드', '로스앤젤레스', '미국', 34.138, -118.353, 'coaster', 'universal 유니버설 해리포터 harry potter', 0],
-  ['legoland-california', '레고랜드 캘리포니아', '레고랜드 CA', '칼즈배드', '미국', 33.126, -117.312, 'blocks', 'lego 레고', 0],
-  ['six-flags-mm', '식스 플래그스 매직 마운틴', '매직 마운틴', '캘리포니아', '미국', 34.425, -118.597, 'coaster', 'six flags 롤러코스터', 0],
-  ['cedar-point', '시더 포인트', '시더 포인트', '오하이오', '미국', 41.482, -82.684, 'coaster', 'cedar 롤러코스터', 0],
-  ['busch-gardens-tampa', '부시 가든 탬파', '부시 가든', '탬파', '미국', 28.037, -82.420, 'coaster', 'busch 동물원', 0],
+  ['universal-orlando', '유니버설 올랜도 리조트', '유니버설 올랜도', '올랜도', '미국', 28.472, -81.469, 'coaster', 'universal 유니버설 해리포터 마법 세계 harry potter hogwarts', 0, 'theme'],
+  ['universal-hollywood', '유니버설 스튜디오 할리우드', '유니버설 할리우드', '로스앤젤레스', '미국', 34.138, -118.353, 'coaster', 'universal 유니버설 해리포터 harry potter', 0, 'theme'],
+  ['legoland-california', '레고랜드 캘리포니아', '레고랜드 CA', '칼즈배드', '미국', 33.126, -117.312, 'blocks', 'lego 레고', 0, 'theme'],
+  ['six-flags-mm', '식스 플래그스 매직 마운틴', '매직 마운틴', '캘리포니아', '미국', 34.425, -118.597, 'coaster', 'six flags 롤러코스터', 0, 'theme'],
+  ['cedar-point', '시더 포인트', '시더 포인트', '오하이오', '미국', 41.482, -82.684, 'coaster', 'cedar 롤러코스터', 0, 'theme'],
+  ['busch-gardens-tampa', '부시 가든 탬파', '부시 가든', '탬파', '미국', 28.037, -82.420, 'coaster', 'busch 동물원', 0, 'theme'],
 
-  ['disneyland-paris', '디즈니랜드 파리', '디즈니랜드 파리', '파리', '프랑스', 48.872, 2.776, 'castle', 'disney 디즈니', 0],
-  ['parc-asterix', '파르크 아스테릭스', '아스테릭스', '오아즈', '프랑스', 49.136, 2.572, 'coaster', 'asterix', 0],
-  ['europa-park', '유로파 파크', '유로파 파크', '루스트', '독일', 48.266, 7.722, 'coaster', 'europa', 0],
-  ['phantasialand', '판타지아란트', '판타지아란트', '브륄', '독일', 50.799, 6.879, 'coaster', 'phantasialand', 0],
-  ['efteling', '에프텔링', '에프텔링', '카츠하우벨', '네덜란드', 51.649, 5.043, 'castle', 'efteling 동화', 0],
-  ['tivoli', '티볼리 공원', '티볼리', '코펜하겐', '덴마크', 55.674, 12.568, 'carousel', 'tivoli', 0],
-  ['legoland-billund', '레고랜드 빌룬드', '레고랜드 덴마크', '빌룬드', '덴마크', 55.737, 9.126, 'blocks', 'lego 레고 billund', 0],
-  ['legoland-windsor', '레고랜드 윈저', '레고랜드 윈저', '윈저', '영국', 51.464, -0.648, 'blocks', 'lego 레고 windsor', 0],
-  ['alton-towers', '알턴 타워스', '알턴 타워스', '스태퍼드셔', '영국', 52.987, -1.888, 'coaster', 'alton', 0],
-  ['portaventura', '포트아벤투라', '포트아벤투라', '살루', '스페인', 41.087, 1.157, 'coaster', 'portaventura', 0],
-  ['gardaland', '가르다랜드', '가르다랜드', '가르다 호수', '이탈리아', 45.456, 10.714, 'coaster', 'gardaland', 0],
+  ['disneyland-paris', '디즈니랜드 파리', '디즈니랜드 파리', '파리', '프랑스', 48.872, 2.776, 'castle', 'disney 디즈니', 0, 'theme'],
+  ['parc-asterix', '파르크 아스테릭스', '아스테릭스', '오아즈', '프랑스', 49.136, 2.572, 'coaster', 'asterix', 0, 'theme'],
+  ['europa-park', '유로파 파크', '유로파 파크', '루스트', '독일', 48.266, 7.722, 'coaster', 'europa', 0, 'theme'],
+  ['phantasialand', '판타지아란트', '판타지아란트', '브륄', '독일', 50.799, 6.879, 'coaster', 'phantasialand', 0, 'theme'],
+  ['efteling', '에프텔링', '에프텔링', '카츠하우벨', '네덜란드', 51.649, 5.043, 'castle', 'efteling 동화', 0, 'theme'],
+  ['tivoli', '티볼리 공원', '티볼리', '코펜하겐', '덴마크', 55.674, 12.568, 'carousel', 'tivoli', 0, 'theme'],
+  ['legoland-billund', '레고랜드 빌룬드', '레고랜드 덴마크', '빌룬드', '덴마크', 55.737, 9.126, 'blocks', 'lego 레고 billund', 0, 'theme'],
+  ['legoland-windsor', '레고랜드 윈저', '레고랜드 윈저', '윈저', '영국', 51.464, -0.648, 'blocks', 'lego 레고 windsor', 0, 'theme'],
+  ['alton-towers', '알턴 타워스', '알턴 타워스', '스태퍼드셔', '영국', 52.987, -1.888, 'coaster', 'alton', 0, 'theme'],
+  ['portaventura', '포트아벤투라', '포트아벤투라', '살루', '스페인', 41.087, 1.157, 'coaster', 'portaventura', 0, 'theme'],
+  ['gardaland', '가르다랜드', '가르다랜드', '가르다 호수', '이탈리아', 45.456, 10.714, 'coaster', 'gardaland', 0, 'theme'],
 
-  ['ferrari-world', '페라리 월드', '페라리 월드', '아부다비', 'UAE', 24.484, 54.607, 'coaster', 'ferrari 자동차', 0],
-  ['wb-world-abudhabi', '워너 브라더스 월드 아부다비', 'WB 월드', '아부다비', 'UAE', 24.487, 54.603, 'castle', 'warner 워너 해리포터 배트맨', 0],
-  ['movie-world', '워너 브라더스 무비월드', '무비월드', '골드코스트', '호주', -27.907, 153.312, 'coaster', 'warner 워너 movie world', 0],
-  ['dreamworld', '드림월드', '드림월드', '골드코스트', '호주', -27.864, 153.318, 'wheel', 'dreamworld', 0]
+  ['ferrari-world', '페라리 월드', '페라리 월드', '아부다비', 'UAE', 24.484, 54.607, 'coaster', 'ferrari 자동차', 0, 'theme'],
+  ['wb-world-abudhabi', '워너 브라더스 월드 아부다비', 'WB 월드', '아부다비', 'UAE', 24.487, 54.603, 'castle', 'warner 워너 해리포터 배트맨', 0, 'theme'],
+  ['movie-world', '워너 브라더스 무비월드', '무비월드', '골드코스트', '호주', -27.907, 153.312, 'coaster', 'warner 워너 movie world', 0, 'theme'],
+  ['dreamworld', '드림월드', '드림월드', '골드코스트', '호주', -27.864, 153.318, 'wheel', 'dreamworld', 0, 'theme'],
+  ['tongdo-fantasia','통도 환타지아','통도환타지아','경남 양산','',35.488,129.064,'carousel','tongdo 양산',0,'theme'],
+  ['shinhwa-theme','신화월드 테마파크','신화 테마파크','제주 서귀포','',33.306,126.322,'castle','jeju 제주 신화월드',0,'theme'],
+  ['luge-tongyeong','스카이라인 루지 통영','루지 통영','경남 통영','',34.826,128.402,'coaster','luge skyline 루지',0,'theme'],
+  ['luge-busan','스카이라인 루지 부산','루지 부산','부산 기장','',35.205,129.206,'coaster','luge skyline 루지',0,'theme'],
+  ['high1-adv','하이원 어드벤처','하이원 어드벤처','강원 정선','',37.208,128.829,'tower','high1 하이원 정선',0,'theme'],
+  ['onemount-water','원마운트 워터파크','원마운트','경기 고양','',37.668,126.748,'wave','onemount 일산 킨텍스',0,'water'],
+  ['spavis','아산 스파비스','스파비스','충남 아산','',36.789,126.995,'wave','spavis 온천',0,'water'],
+  ['coex-aqua','코엑스 아쿠아리움','코엑스 아쿠아','서울 강남','',37.5126,127.059,'fish','coex aquarium 수족관',0,'zoo'],
+  ['lotte-aqua','롯데월드 아쿠아리움','롯데 아쿠아','서울 송파','',37.513,127.104,'fish','lotte aquarium 수족관',0,'zoo'],
+  ['busan-aqua','부산 아쿠아리움','부산 아쿠아','부산 해운대','',35.1586,129.1603,'fish','sea life 해운대 수족관',0,'zoo'],
+  ['yeosu-aqua','아쿠아플라넷 여수','여수 아쿠아','전남 여수','',34.739,127.746,'fish','63 여수 수족관',0,'zoo'],
+  ['jeju-aqua','아쿠아플라넷 제주','제주 아쿠아','제주 서귀포','',33.4326,126.9288,'fish','jeju 성산 수족관',0,'zoo'],
+  ['ilsan-aqua','아쿠아플라넷 일산','일산 아쿠아','경기 고양','',37.664,126.745,'fish','ilsan 킨텍스 수족관',0,'zoo'],
+  ['cheongju-zoo','청주동물원','청주동물원','충북 청주','',36.670,127.490,'paw','cheongju zoo 청주랜드',0,'zoo'],
+  ['jeonju-zoo','전주동물원','전주동물원','전북 전주','',35.813,127.123,'paw','jeonju zoo',0,'zoo'],
+  ['uchi-zoo','광주 우치동물원','우치동물원','광주 북구','',35.226,126.896,'paw','gwangju zoo 우치공원',0,'zoo'],
+  ['samjung-zoo','부산 삼정더파크','삼정더파크','부산 부산진구','',35.1938,129.013,'paw','busan zoo 동물원',0,'zoo'],
+  ['ulsan-whale','울산 고래생태체험관','고래체험관','울산 남구','',35.504,129.382,'fish','ulsan whale 고래',0,'zoo'],
+  ['gwacheon-sci','국립과천과학관','과천과학관','경기 과천','',37.4357,127.0094,'tower','science 과학관',0,'kids'],
+  ['daejeon-sci','국립중앙과학관','중앙과학관','대전 유성','',36.375,127.377,'tower','science 과학관 대전',0,'kids'],
+  ['sangsang-nara','서울상상나라','상상나라','서울 광진','',37.547,127.077,'blocks','kids 어린이 체험',0,'kids'],
+  ['natl-children-museum','국립어린이박물관','국립어린이박물관','서울 종로','',37.581,126.981,'blocks','kids museum 어린이',0,'kids'],
+  ['gg-children-museum','경기도어린이박물관','경기어린이박물관','경기 용인','',37.272,127.113,'blocks','kids museum 용인',0,'kids'],
+  ['maritime-museum','국립해양박물관','해양박물관','부산 영도','',35.0775,129.0795,'wave','sea museum 해양',0,'kids'],
+  ['nie','국립생태원','국립생태원','충남 서천','',36.097,126.754,'tree','ecology 생태 서천',0,'kids'],
+  ['sdm-nature','서대문자연사박물관','자연사박물관','서울 서대문','',37.574,126.939,'paw','natural history 공룡',0,'kids'],
+  ['natl-museum-kids','국립중앙박물관 어린이박물관','중앙박물관 어린이','서울 용산','',37.5239,126.9803,'blocks','museum 박물관',0,'kids'],
+  ['job-world','한국잡월드','잡월드','경기 성남','',37.396,127.110,'blocks','job world 직업체험',0,'kids'],
+  ['vivaldi-snow','비발디파크 스노위랜드','스노위랜드','강원 홍천','',37.648,127.688,'snow','sonovel 눈썰매 vivaldi',0,'snow'],
+  ['gonjiam-snow','곤지암리조트 눈썰매장','곤지암 눈썰매','경기 광주','',37.336,127.347,'snow','gonjiam 눈썰매 스키',0,'snow'],
+  ['yongpyong','용평리조트','용평리조트','강원 평창','',37.644,128.683,'snow','yongpyong 눈썰매 스키',0,'snow'],
+  ['phoenix','휘닉스 평창','휘닉스 평창','강원 평창','',37.583,128.328,'snow','phoenix pyeongchang 눈썰매',0,'snow'],
+  ['elysian','엘리시안 강촌','엘리시안 강촌','강원 춘천','',37.813,127.604,'snow','elysian 강촌 눈썰매',0,'snow'],
+  ['eden-valley','에덴밸리 리조트','에덴밸리','경남 양산','',35.397,129.012,'snow','eden 눈썰매 양산',0,'snow'],
+  ['oak-valley','오크밸리','오크밸리','강원 원주','',37.380,127.870,'snow','oak 눈썰매 원주',0,'snow'],
+  ['morning-calm','아침고요수목원','아침고요','경기 가평','',37.744,127.351,'tree','garden 수목원',0,'nature'],
+  ['nami-island','남이섬','남이섬','강원 춘천','',37.791,127.525,'tree','nami 가평',0,'nature'],
+  ['petite-france','쁘띠프랑스','쁘띠프랑스','경기 가평','',37.713,127.542,'castle','petit france 가평',0,'nature'],
+  ['suncheon-garden','순천만국가정원','순천만정원','전남 순천','',34.925,127.511,'tree','suncheon 정원',0,'nature'],
+  ['anseong-farm','안성팜랜드','안성팜랜드','경기 안성','',36.995,127.194,'tree','farmland 목장 체험',0,'nature'],
+  ['eco-land','제주 에코랜드','에코랜드','제주 조천','',33.430,126.665,'tree','ecoland 곶자왈 기차',0,'nature'],
+  ['gapyeong-railpark','가평 레일파크','가평 레일파크','경기 가평','',37.826,127.510,'coaster','rail bike 레일바이크',0,'nature'],
+  ['hantaek','한택식물원','한택식물원','경기 용인','',37.126,127.297,'tree','garden 식물원',0,'nature'],
 ];
+const CATS = [
+  { k: 'theme', n: '테마파크', e: '🎢' }, { k: 'water', n: '워터파크', e: '🌊' }, { k: 'zoo', n: '동물원·수족관', e: '🐘' },
+  { k: 'kids', n: '체험·과학관', e: '🔬' }, { k: 'snow', n: '눈썰매', e: '⛷️' }, { k: 'nature', n: '자연·정원', e: '🌳' }
+];
+const CAT_N = {}; CATS.forEach((c) => { CAT_N[c.k] = c.n; });
 const PALETTE = ['#7A4DE8', '#1FA45B', '#F26B1D', '#E3342F', '#0FA3A3', '#E8498F', '#2D6BE4', '#6BAA2A', '#1E88D6', '#00A6C7', '#F2994A', '#C7365F', '#8E5BD9', '#18A999', '#E0457B', '#D6336C', '#5C7CFA', '#E8590C'];
 const CUSTOM_COLORS = ['#D6336C', '#5C7CFA', '#12B886', '#E8890C', '#845EF7', '#E8590C'];
 const CUSTOM_MOTIFS = ['balloon', 'wheel', 'carousel', 'coaster', 'tower', 'castle', 'blocks', 'wave'];
@@ -1158,10 +1213,14 @@ const DOW = ['일', '월', '화', '수', '목', '금', '토'];
 function hash(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
 const CATALOG = ROWS.map((r) => ({
   id: r[0], name: r[1], short: r[2], region: r[3], country: r[4], lat: r[5], lon: r[6],
-  motif: r[7], tags: r[8] || '', base: false, color: PALETTE[hash(r[0]) % PALETTE.length]
+  motif: r[7], tags: r[8] || '', cat: r[10] || 'theme', base: false, color: PALETTE[hash(r[0]) % PALETTE.length]
 }));
 
 const MOTIF = {
+  paw: () => '<g fill="#fff"><ellipse cx="50" cy="58" rx="15" ry="12"/><ellipse cx="31" cy="42" rx="6.5" ry="8.5"/><ellipse cx="44" cy="32" rx="6.5" ry="8.5"/><ellipse cx="57" cy="32" rx="6.5" ry="8.5"/><ellipse cx="70" cy="42" rx="6.5" ry="8.5"/></g>',
+  fish: () => '<g fill="#fff"><path d="M24 46C36 30 58 30 70 46C58 62 36 62 24 46Z"/><path d="M68 46L82 34V58Z"/></g><circle cx="38" cy="43" r="3" fill="#000" fill-opacity=".45"/>',
+  snow: () => '<g fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"><path d="M50 22V70M29 34L71 58M29 58L71 34"/><path d="M44 26L50 32L56 26M44 66L50 60L56 66" stroke-width="3"/></g>',
+  tree: () => '<g fill="#fff"><circle cx="50" cy="34" r="14"/><circle cx="38" cy="46" r="12"/><circle cx="62" cy="46" r="12"/><rect x="46" y="52" width="8" height="22" rx="2"/></g>',
   wheel: () => '<g fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"><circle cx="50" cy="44" r="20"/><path d="M50 24V64M30 44H70M36 30L64 58M64 30L36 58" stroke-width="2"/><path d="M50 44L36 76M50 44L64 76"/></g><g fill="#fff"><circle cx="50" cy="44" r="3.5"/><circle cx="50" cy="24" r="3"/><circle cx="50" cy="64" r="3"/><circle cx="30" cy="44" r="3"/><circle cx="70" cy="44" r="3"/><circle cx="36" cy="30" r="3"/><circle cx="64" cy="30" r="3"/><circle cx="36" cy="58" r="3"/><circle cx="64" cy="58" r="3"/></g>',
   coaster: () => '<path d="M16 62C28 62 30 30 44 30S58 66 70 56 82 40 86 38V72H16Z" fill="#fff" fill-opacity=".26"/><path d="M16 62C28 62 30 30 44 30S58 66 70 56 82 40 86 38" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>',
   castle: (c) => '<g fill="#fff"><rect x="30" y="46" width="40" height="26"/><rect x="25" y="36" width="12" height="36"/><rect x="63" y="36" width="12" height="36"/><rect x="43" y="28" width="14" height="44"/><path d="M23 36L31 24L39 36Z"/><path d="M61 36L69 24L77 36Z"/><path d="M41 28L50 14L59 28Z"/></g><path d="M44 72V62A6 6 0 0 1 56 62V72Z" fill="' + c + '"/>',
@@ -1192,7 +1251,7 @@ const placeLabel = (p) => p.country || (placed(p) && !inKorea(p.lat, p.lon) ? '�
 /* ---------- 상태 ---------- */
 const S = {
   visits: [], parks: [], tab: 'map', loaded: false, sel: null, temp: null, sheet: null, pop: null,
-  confirm: null, nf: [], light: null, vopen: new Set(), vtouched: false, busy: false, q: '', online: null, pick: false, byId: new Map(), vBy: new Map(), storage: true
+  confirm: null, famDel: false, nf: [], light: null, vopen: new Set(), vtouched: false, busy: false, q: '', online: null, cat: '', pick: false, byId: new Map(), vBy: new Map(), storage: true
 };
 let map = null, cluster = null, dots = null, selMarker = null, tempMarker = null;
 let lastFocus = null, confirmTimer = null, toastTimer = null, previewUrl = null, lastNom = 0;
@@ -1237,6 +1296,7 @@ const Crypt = (() => {
     newSecret() { const a = crypto.getRandomValues(new Uint8Array(20)); return Array.from(a, (x) => B32[x % 32]).join(''); },
     valid: (sec) => /^[A-HJ-NP-Z2-9]{20}$/.test(sec),
     async key(id, secret) { if (!keys.has(id)) keys.set(id, await derive(secret)); return keys.get(id); },
+    keyOf: (secret) => derive(secret),
     forget(id) { keys.delete(id); },
     async encBytes(key, buf) { const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, buf)); const out = new Uint8Array(12 + ct.length); out.set(iv); out.set(ct, 12); return out; },
     async decBytes(key, buf) { const u = new Uint8Array(buf); return crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, key, u.slice(12)); },
@@ -1279,6 +1339,7 @@ const Cloud = (() => {
     lsSet('tp-sess', JSON.stringify(sess));
     const md = (sess.user && sess.user.user_metadata) || {};
     if (md.name) name = md.name;
+    else if (!name) name = lsGet('tp-name') || '';
   }
   async function refresh() {
     if (!sess || !sess.refresh_token) return false;
@@ -1297,24 +1358,36 @@ const Cloud = (() => {
   const JSONH = { 'Content-Type': 'application/json' };
   async function auth(mode, email, pw, nm) {
     const path = mode === 'signup' ? '/auth/v1/signup' : '/auth/v1/token?grant_type=password';
-    const body = mode === 'signup' ? { email, password: pw, data: { name: nm } } : { email, password: pw };
+    const body = { email, password: pw };
     const r = await raw(path, { method: 'POST', anon: true, headers: JSONH, body: JSON.stringify(body) });
     const j = await jsonOf(r);
     if (!r.ok) throw new Error(errText(j));
     if (!j.access_token) throw new Error('이메일 확인이 필요해요. 메일함을 열어 확인한 뒤 로그인해 주세요.');
+    if (mode === 'signup' && nm) { name = nm; lsSet('tp-name', nm); }
     setSess(j);
   }
   function restore() {
-    try { const x = JSON.parse(lsGet('tp-sess')); if (x && x.access_token) { sess = x; const md = (x.user && x.user.user_metadata) || {}; name = md.name || ''; return true; } } catch (e) { /* 무시 */ }
+    try { const x = JSON.parse(lsGet('tp-sess')); if (x && x.access_token) { sess = x; const md = (x.user && x.user.user_metadata) || {}; name = md.name || lsGet('tp-name') || ''; return true; } } catch (e) { /* 무시 */ }
     return false;
   }
-  function logout() { sess = null; fam = null; cache = { visits: [], parks: [] }; urls.clear(); lsSet('tp-sess', null); }
+  function logout() { sess = null; fam = null; cache = { visits: [], parks: [] }; urls.clear(); lsSet('tp-sess', null); lsSet('tp-name', null); name = ''; }
+  const encName = async (key, t) => 'e1:' + (await Crypt.encJSON(key, String(t)));
+  async function decName(id, t, fallback) {
+    if (!t || !String(t).startsWith('e1:')) return t || '';
+    const sec = lsGet('tp-sec-' + id); if (!sec) return fallback;
+    try { return await Crypt.decJSON(await Crypt.key(id, sec), String(t).slice(3)); } catch (e) { return fallback; }
+  }
   async function families() {
     const r = await api('/rest/v1/members?select=name,family_id,families(id,name,code,enc)&user_id=eq.' + sess.user.id);
     if (r.status === 401) throw new Error('auth');
     if (!r.ok) throw new Error(errText(await jsonOf(r), '가족 정보를 불러오지 못했어요.'));
     const rows = await r.json();
-    return rows.filter((x) => x.families).map((x) => ({ id: x.families.id, name: x.families.name, code: x.families.code, enc: !!x.families.enc, me: x.name }));
+    const out = [];
+    for (const x of rows.filter((y) => y.families)) {
+      const f = x.families;
+      out.push({ id: f.id, name: await decName(f.id, f.name, '🔒 스티커북'), rawName: f.name, code: f.code, enc: !!f.enc, me: await decName(f.id, x.name, ''), rawMe: x.name });
+    }
+    return out;
   }
   async function rpc(fn, args) {
     const r = await api('/rest/v1/rpc/' + fn, { method: 'POST', headers: JSONH, body: JSON.stringify(args) });
@@ -1324,18 +1397,36 @@ const Cloud = (() => {
   }
   const secOf = (id) => lsGet('tp-sec-' + id);
   async function createFamily(fname, my) {
-    const f = await rpc('create_family', { fname, myname: my, use_enc: true });
-    const sec = Crypt.newSecret(); lsSet('tp-sec-' + f.id, sec);
-    return Object.assign({}, f, { enc: true });
+    const sec = Crypt.newSecret(), key = await Crypt.keyOf(sec);
+    const f = await rpc('create_family', { fname: await encName(key, fname), myname: await encName(key, my), use_enc: true });
+    lsSet('tp-sec-' + f.id, sec);
+    return Object.assign({}, f, { enc: true, name: fname });
   }
   async function joinFamily(input, my) {
     const inv = parseInvite(input);
     if (inv.code.length < 6) throw new Error('초대 코드를 써 주세요.');
-    const f = await rpc('join_family', { fcode: inv.code, myname: my });
-    if (f.enc && inv.secret) { if (!Crypt.valid(inv.secret)) throw new Error('초대 코드가 끝까지 입력되지 않았어요.'); lsSet('tp-sec-' + f.id, inv.secret); Crypt.forget(f.id); }
+    if (inv.secret && !Crypt.valid(inv.secret)) throw new Error('초대 코드가 끝까지 입력되지 않았어요.');
+    const key = inv.secret ? await Crypt.keyOf(inv.secret) : null;
+    const f = await rpc('join_family', { fcode: inv.code, myname: key ? await encName(key, my) : my });
+    if (f.enc && inv.secret) { lsSet('tp-sec-' + f.id, inv.secret); Crypt.forget(f.id); f.name = await decName(f.id, f.name, '🔒 스티커북'); }
     return f;
   }
+  async function deleteFamily() {
+    const id = fam.id;
+    const r = await api('/storage/v1/object/list/photos', { method: 'POST', headers: JSONH, body: JSON.stringify({ prefix: id + '/', limit: 1000 }) });
+    if (r.ok) {
+      const names = ((await r.json()) || []).map((x) => id + '/' + x.name);
+      if (names.length) await api('/storage/v1/object/photos', { method: 'DELETE', headers: JSONH, body: JSON.stringify({ prefixes: names }) });
+    }
+    await rpc('delete_family', { fid: id });
+    lsSet('tp-sec-' + id, null); Crypt.forget(id); lsSet('tp-fam', null); fam = null; cache = { visits: [], parks: [] };
+  }
   function setSecret(sec) { if (!Crypt.valid(sec)) return false; lsSet('tp-sec-' + fam.id, sec); Crypt.forget(fam.id); return true; }
+  async function unlockNames() {
+    if (!fam || !fam.rawName) return;
+    fam.name = await decName(fam.id, fam.rawName, '🔒 스티커북');
+    if (fam.rawMe) { fam.me = await decName(fam.id, fam.rawMe, fam.me || ''); if (fam.me) name = fam.me; }
+  }
   function clearSecret() { lsSet('tp-sec-' + fam.id, null); Crypt.forget(fam.id); }
   const hasKey = () => !fam || !fam.enc || !!secOf(fam.id);
   const invite = () => (fam ? fam.code + (secOf(fam.id) ? '-' + groupSecret(secOf(fam.id)) : '') : '');
@@ -1360,7 +1451,10 @@ const Cloud = (() => {
   function useFamily(f) { fam = f; name = f.me || name; lsSet('tp-fam', f.id); }
   async function members() {
     const r = await api('/rest/v1/members?select=name&family_id=eq.' + fam.id + '&order=joined_at.asc');
-    return r.ok ? (await r.json()).map((x) => x.name) : [];
+    if (!r.ok) return [];
+    const rows = await r.json(), out = [];
+    for (const x of rows) out.push(await decName(fam.id, x.name, '가족'));
+    return out;
   }
   async function sign(paths) {
     const need = paths.filter((p) => p && (!urls.has(p) || Date.now() - signedAt > 4 * 3600 * 1000));
@@ -1402,7 +1496,7 @@ const Cloud = (() => {
   }
   const kindOf = (n) => (n === 'visits' ? 'visit' : 'park');
   return {
-    on, restore, auth, logout, families, createFamily, joinFamily, useFamily, members, load, hasKey, invite, setSecret, clearSecret,
+    on, restore, auth, logout, unlockNames, families, createFamily, joinFamily, useFamily, members, load, deleteFamily, hasKey, invite, setSecret, clearSecret,
     picUrl: (path) => (fam && fam.enc ? dCache.get(path) || null : urls.get(path) || null),
     set onPhotos(fn) { onPhotos = fn; },
     get name() { return name; }, get fam() { return fam; }, get user() { return sess && sess.user; }, get hasSess() { return !!sess; },
@@ -1592,13 +1686,35 @@ function localSearch(q) {
   const n = norm(q); if (!n) return [];
   return allPlaces().filter((p) => norm([p.name, p.short, p.region, p.country || '한국 대한민국 국내', p.tags].join(' ')).includes(n)).slice(0, 8);
 }
+function catPlaces(k) { return allPlaces().filter((p) => !p.country && p.cat === k && !p.custom); }
+function renderCatbar() {
+  const bar = $('#catbar'); if (!bar) return;
+  bar.innerHTML = '<button type="button" data-act="cat" data-k="" aria-pressed="' + (!S.cat) + '">전체</button>' +
+    CATS.map((c) => '<button type="button" data-act="cat" data-k="' + c.k + '" aria-pressed="' + (S.cat === c.k) + '">' + c.e + ' ' + c.n + '</button>').join('');
+}
+function setCat(k) {
+  S.cat = (S.cat === k ? '' : k); renderCatbar(); refreshMarkers();
+  const box = $('#sres');
+  if (!S.cat) { if (!S.q.trim()) { box.hidden = true; box.innerHTML = ''; } return; }
+  S.q = ''; $('#q').value = '';
+  const list = catPlaces(S.cat).sort((a, b) => (visitsOf(b.id).length ? 1 : 0) - (visitsOf(a.id).length ? 1 : 0) || a.lat - b.lat);
+  let h = '<p class="sr-sub">' + esc(CAT_N[S.cat]) + ' · ' + list.length + '곳</p>';
+  list.forEach((p) => {
+    const vs = visitsOf(p.id).length;
+    h += '<button type="button" class="sr-row" data-act="pick" data-id="' + esc(p.id) + '"><span class="mini">' + stickerSVG(p, !vs) + '</span><span><b>' + esc(p.name) + '</b><small>' + esc(p.region) + (vs ? ' · ' + vs + '번 다녀옴' : '') + '</small></span></button>';
+  });
+  h += '<div class="sr-foot"><button type="button" class="btn ghost sm" data-act="sres-close">닫기</button></div>';
+  box.innerHTML = h; box.hidden = false;
+  const pts = list.filter(placed).map((p) => [p.lat, p.lon]);
+  if (pts.length && map) map.fitBounds(pts, { padding: [30, 30], maxZoom: 9 });
+}
 function renderSres() {
   const box = $('#sres'), q = S.q.trim();
   if (!q) { box.hidden = true; box.innerHTML = ''; return; }
   let h = '';
   localSearch(q).forEach((p) => {
     const vs = visitsOf(p.id).length;
-    h += '<button type="button" class="sr-row" data-act="pick" data-id="' + esc(p.id) + '"><span class="mini">' + stickerSVG(p, !vs) + '</span><span><b>' + esc(p.name) + '</b><small>' + esc(placeLabel(p)) + (p.region ? ' · ' + esc(p.region) : '') + (vs ? ' · ' + vs + '번 다녀옴' : '') + '</small></span></button>';
+    h += '<button type="button" class="sr-row" data-act="pick" data-id="' + esc(p.id) + '"><span class="mini">' + stickerSVG(p, !vs) + '</span><span><b>' + esc(p.name) + '</b><small>' + esc(placeLabel(p)) + (p.region ? ' · ' + esc(p.region) : '') + (!p.country && CAT_N[p.cat] ? '<span class="sr-cat">' + esc(CAT_N[p.cat]) + '</span>' : '') + (vs ? ' · ' + vs + '번 다녀옴' : '') + '</small></span></button>';
   });
   const o = S.online;
   if (o) {
@@ -1668,8 +1784,9 @@ function refreshMarkers() {
       m.on('click', () => selectPlace(p.id));
       cluster.addLayer(m);
     } else {
+      if (S.cat && p.cat !== S.cat) return;
       m = L.marker([p.lat, p.lon], {
-        icon: L.divIcon({ className: 'dotpin', html: '<i style="--c:' + p.color + '"></i><span class="dl">' + esc(p.short || p.name) + '</span>', iconSize: [22, 22], iconAnchor: [11, 11] }),
+        icon: L.divIcon({ className: 'dotpin' + (S.cat && p.cat === S.cat ? ' hot' : ''), html: '<i></i><span class="dl">' + esc(p.short || p.name) + '</span>', iconSize: [22, 22], iconAnchor: [11, 11] }),
         title: p.name, pane: 'dots'
       });
       m.on('click', () => selectPlace(p.id));
@@ -1815,6 +1932,7 @@ function renderHead() {
   $('#foot').textContent = !S.loaded ? '' : DB === Cloud ? '기록은 가족과 함께 저장돼요.' : S.storage ? '기록은 이 기기에 저장돼요.' : '이 브라우저에서는 저장이 안 될 수 있어요. 백업 파일을 자주 저장해 주세요.';
   $('#maphint').textContent = !S.loaded ? '불러오는 중이에요…' : S.visits.length === 0 ? '점을 누르거나 위에서 검색해서 공원을 골라 보세요!' : '';
   $('#maphint').hidden = !$('#maphint').textContent;
+  if (!$('#catbar').firstChild) renderCatbar();
 }
 function slotHTML(p, popId) {
   const vs = visitsOf(p.id), last = vs[0];
@@ -1978,6 +2096,9 @@ function acctHTML() {
     '<p class="note">이 코드를 알려 주면 같은 스티커북에 들어올 수 있어요. 아이 폰에서는 아이 이름으로 가입한 뒤 이 코드를 입력하면 돼요.</p>' +
     (f.enc ? '<p class="note"><b>이 스티커북은 암호화되어 있어요.</b> 기록과 사진은 이 코드를 아는 가족만 볼 수 있고, 관리자도 볼 수 없어요. 코드는 서버에 저장되지 않으니 꼭 따로 보관해 주세요. 잃어버리면 복구할 수 없어요.</p>' : '<p class="note">이 스티커북은 암호화 없이 저장되어 있어요.</p>') + '</div>' +
     '<div class="who"><span class="flabel">함께 쓰는 사람</span><ul>' + (S.members || []).map((m) => '<li>' + esc(m) + '</li>').join('') + '</ul></div>' +
+    ((S.myFams || []).length > 1 ? '<div class="who"><span class="flabel">내 스티커북</span>' + S.myFams.map((x) => '<button type="button" class="btn ghost sm" data-act="fam-switch" data-id="' + esc(x.id) + '"' + (x.id === f.id ? ' disabled' : '') + '>' + esc(x.name) + (x.id === f.id ? ' (지금 보는 중)' : '') + (x.enc ? ' 🔒' : '') + '</button>').join('') + '</div>' : '') +
+    '<button type="button" class="btn ghost" data-act="new-fam">새 스티커북 만들기 · 다른 코드로 들어가기</button>' +
+    '<button type="button" class="link danger" data-act="fam-del">' + (S.famDel ? '정말 지울까요? 모든 가족의 기록과 사진이 지워져요. 한 번 더 누르면 지워져요' : '이 스티커북 지우기') + '</button>' +
     '<button type="button" class="ghost" data-act="logout">로그아웃</button></div></div>';
 }
 function renderSheet() {
@@ -2082,6 +2203,7 @@ document.addEventListener('click', (e) => {
       if (S.sel && S.sel.temp && !(S.temp.name || '').trim()) { toast('공원 이름을 써 주세요.'); const i = $('#c-name'); if (i) i.focus(); break; }
       openForm(S.sel ? S.sel.id : null); break;
     case 'card-view': if (S.sel) openSheet({ type: 'detail', parkId: S.sel.id }); break;
+    case 'cat': setCat(t.getAttribute('data-k') || ''); break;
     case 'm-kor': toKorea(); break;
     case 'm-world': toWorld(); break;
     case 'm-pick':
@@ -2092,6 +2214,7 @@ document.addEventListener('click', (e) => {
     case 'acct':
       openSheet({ type: 'acct' });
       Cloud.members().then((m) => { S.members = m; if (S.sheet && S.sheet.type === 'acct') renderSheet(); });
+      Cloud.families().then((fs) => { S.myFams = fs; if (S.sheet && S.sheet.type === 'acct') renderSheet(); }).catch(() => {});
       break;
     case 'copy-code':
       try { navigator.clipboard.writeText(Cloud.invite()).then(() => toast('코드를 복사했어요.'), () => toast('복사가 안 돼요. 코드를 직접 적어 주세요.')); } catch (err) { toast('복사가 안 돼요. 코드를 직접 적어 주세요.'); }
@@ -2099,6 +2222,22 @@ document.addEventListener('click', (e) => {
     case 'logout':
       stopPoll(); Cloud.logout(); closeSheet(); S.visits = []; S.parks = []; S.loaded = false; rebuild(); renderAll();
       $('#acct').hidden = true; showAuth('login'); break;
+    case 'fam-del':
+      if (S.famDel) {
+        S.famDel = false; clearTimeout(confirmTimer); stopPoll();
+        Cloud.deleteFamily().then(async () => {
+          closeSheet(); S.visits = []; S.parks = []; S.loaded = false; rebuild(); renderAll(); $('#acct').hidden = true;
+          toast('스티커북을 지웠어요.'); await enterAfterLogin();
+        }).catch(() => { toast('지우지 못했어요. 다시 눌러 볼까요?'); startPoll(); });
+      } else { S.famDel = true; renderSheet(); clearTimeout(confirmTimer); confirmTimer = setTimeout(() => { S.famDel = false; if (S.sheet && S.sheet.type === 'acct') renderSheet(); }, 5000); }
+      break;
+    case 'new-fam': stopPoll(); closeSheet(); showAuth('family'); break;
+    case 'fam-back': hideAuth(); startPoll(); break;
+    case 'fam-switch': {
+      const f = (S.myFams || []).find((x) => x.id === id); if (!f) break;
+      stopPoll(); closeSheet(); enterFamily(f).catch(() => { toast('연결이 안 돼요. 다시 눌러 주세요.'); startPoll(); });
+      break;
+    }
     case 'invite-ok': S.busy = false; startCloud().catch(() => toast('연결이 안 돼요. 다시 눌러 주세요.')); break;
     case 'auth-switch': showAuth(S.auth.mode === 'login' ? 'signup' : 'login'); break;
   }
@@ -2253,7 +2392,7 @@ function authHTML() {
     return '<div class="authbox">' + head + '<p class="note">' + esc(Cloud.name || '') + '님, 함께 쓸 가족 스티커북을 정해 주세요.</p>' +
       '<form id="ff-new"><h3>새로 만들기</h3><input type="text" id="fn-name" maxlength="20" placeholder="가족 이름 (예: 서훈네)" aria-label="가족 이름"><button class="primary" type="submit">만들기</button></form>' +
       '<hr class="sep"><form id="ff-join"><h3>가족 코드로 들어가기</h3><p class="note">가족이 알려 준 초대 코드를 그대로 붙여 넣어 주세요.</p><input type="text" id="fj-code" maxlength="40" autocapitalize="characters" autocomplete="off" placeholder="예: AB3K9Z-XXXXX-XXXXX-XXXXX-XXXXX" aria-label="초대 코드"><button class="primary" type="submit">들어가기</button></form>' +
-      err + '<button type="button" class="link" data-act="logout">다른 계정으로 로그인</button></div>';
+      err + (Cloud.fam && S.loaded ? '<button type="button" class="link" data-act="fam-back">돌아가기</button>' : '<button type="button" class="link" data-act="logout">다른 계정으로 로그인</button>') + '</div>';
   }
   const su = a.mode === 'signup';
   return '<div class="authbox">' + head + '<p class="note">부모님과 아이가 같은 스티커북을 함께 써요.</p>' +
@@ -2305,6 +2444,7 @@ async function authSubmit(form) {
         const raw = $('#fk-code').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
         const sec = raw.length >= 26 ? raw.slice(6, 26) : raw;
         if (!Cloud.setSecret(sec)) throw new Error('초대 코드를 끝까지 입력해 주세요.');
+        await Cloud.unlockNames();
         S.busy = false;
         try { await startCloud(); } catch (err) { if (err && err.locked) { Cloud.clearSecret(); throw new Error('초대 코드가 맞지 않아요. 다시 확인해 주세요.'); } throw err; }
         return;
