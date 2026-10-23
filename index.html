@@ -822,6 +822,37 @@ h1 { margin: 0; font: 400 30px/1.15 var(--font-display); text-wrap: balance; }
 .pin.gray .pl { color: var(--ink-soft); }
 .sres { max-height: 34vh; overflow-y: auto; }
 [data-act="sv-opt"] { opacity: .75; }
+.svopts { display: flex; gap: 8px; flex-wrap: wrap; }
+.svpics { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; }
+.svpic { position: relative; padding: 0; border: 3px solid var(--edge); border-radius: 12px; overflow: hidden; background: #fff; aspect-ratio: 1; cursor: pointer; opacity: .45; }
+.svpic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.svpic[aria-pressed="true"] { opacity: 1; box-shadow: 0 0 0 3px var(--accent); }
+.svpic[aria-pressed="true"]::after { content: '✓'; position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); border: 2px solid var(--edge); font: 400 14px/1 var(--font-display); }
+.svw { min-height: 100vh; padding: 20px 16px 40px; }
+.svw-in { max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.svw-brand { margin: 0; text-align: center; font: 400 18px var(--font-display); color: var(--ink-soft); }
+.svcard { background: var(--sheet); border: 3px solid var(--edge); border-radius: 24px; box-shadow: 0 5px 0 var(--edge); padding: 22px 18px; text-align: center; }
+.svcard h1 { margin: 6px 0 2px; font: 400 30px var(--font-display); }
+.svstk { width: 120px; height: 120px; margin: 0 auto; }
+.svstk svg { width: 100%; height: 100%; }
+.svsub { margin: 2px 0; color: var(--ink-soft); font-size: 15px; }
+.car { position: relative; margin: 16px -4px 4px; }
+.car .track { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; border-radius: 16px; border: 3px solid var(--edge); scrollbar-width: none; }
+.car .track::-webkit-scrollbar { display: none; }
+.car .slide { flex: 0 0 100%; scroll-snap-align: center; aspect-ratio: 4 / 3; background: #EEF2F8; }
+.car .slide img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cnav { position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 52px; border: 0; border-radius: 12px; background: rgba(255, 255, 255, .85); font: 400 28px/1 var(--font-display); color: var(--ink); cursor: pointer; }
+.cnav.l { left: 10px; } .cnav.r { right: 10px; }
+.ccount { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); padding: 2px 10px; border-radius: 999px; background: rgba(30, 42, 94, .75); color: #fff; font-size: 13px; }
+.svtitle { margin: 16px 0 4px; font: 400 22px var(--font-display); }
+.svstars { margin: 4px 0; font-size: 30px; color: #F5A623; letter-spacing: 2px; }
+.svstars span { color: #D6DCEA; }
+.svrows { margin: 14px 0 0; text-align: left; display: grid; gap: 2px; }
+.svrows dt { font-size: 13px; color: var(--pink); margin-top: 8px; }
+.svrows dd { margin: 0; font-size: 17px; }
+.svmemo { margin: 16px 0 0; padding: 12px 14px; text-align: left; background: rgba(255, 201, 60, .18); border-radius: 14px; }
+.svw-cta { text-align: center; text-decoration: none; display: block; }
+.svw-foot { text-align: center; }
 [data-act="sv-opt"][aria-pressed="true"] { opacity: 1; background: var(--accent); color: var(--accent-ink); }
 [data-act="sv-opt"][aria-pressed="true"]::before { content: '✓ '; }
 .catbar { display: flex; gap: 8px; margin-top: 10px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
@@ -1262,7 +1293,7 @@ const placeLabel = (p) => p.country || (placed(p) && !inKorea(p.lat, p.lon) ? '�
 /* ---------- 상태 ---------- */
 const S = {
   visits: [], parks: [], tab: 'map', loaded: false, sel: null, temp: null, sheet: null, pop: null,
-  confirm: null, famDel: false, nf: [], light: null, vopen: new Set(), vtouched: false, busy: false, q: '', online: null, cat: '', pick: false, byId: new Map(), vBy: new Map(), storage: true
+  confirm: null, famDel: false, acctDel: false, nf: [], light: null, vopen: new Set(), vtouched: false, busy: false, q: '', online: null, cat: '', pick: false, byId: new Map(), vBy: new Map(), storage: true
 };
 let map = null, cluster = null, dots = null, selMarker = null, tempMarker = null;
 let lastFocus = null, confirmTimer = null, toastTimer = null, previewUrl = null, lastNom = 0;
@@ -1383,10 +1414,10 @@ const Cloud = (() => {
   }
   function logout() { sess = null; fam = null; cache = { visits: [], parks: [] }; urls.clear(); lsSet('tp-sess', null); lsSet('tp-name', null); name = ''; }
   const encName = async (key, t) => 'e1:' + (await Crypt.encJSON(key, String(t)));
-  async function decName(id, t, fallback) {
+  async function decName(id, t, fallback, bad) {
     if (!t || !String(t).startsWith('e1:')) return t || '';
     const sec = lsGet('tp-sec-' + id); if (!sec) return fallback;
-    try { return await Crypt.decJSON(await Crypt.key(id, sec), String(t).slice(3)); } catch (e) { return fallback; }
+    try { return await Crypt.decJSON(await Crypt.key(id, sec), String(t).slice(3)); } catch (e) { if (bad) bad.v = true; return fallback; }
   }
   async function families() {
     const r = await api('/rest/v1/members?select=name,family_id,families(id,name,code,enc)&user_id=eq.' + sess.user.id);
@@ -1396,7 +1427,8 @@ const Cloud = (() => {
     const out = [];
     for (const x of rows.filter((y) => y.families)) {
       const f = x.families;
-      out.push({ id: f.id, name: await decName(f.id, f.name, '🔒 스티커북'), rawName: f.name, code: f.code, enc: !!f.enc, me: await decName(f.id, x.name, ''), rawMe: x.name });
+      const bad = { v: false };
+      out.push({ id: f.id, name: await decName(f.id, f.name, '🔒 스티커북', bad), rawName: f.name, code: f.code, enc: !!f.enc, me: await decName(f.id, x.name, '', bad), rawMe: x.name, broken: bad.v });
     }
     return out;
   }
@@ -1410,6 +1442,10 @@ const Cloud = (() => {
   async function createFamily(fname, my) {
     const sec = Crypt.newSecret(), key = await Crypt.keyOf(sec);
     const f = await rpc('create_family', { fname: await encName(key, fname), myname: await encName(key, my), use_enc: true });
+    try { await Crypt.decJSON(key, String(f.name).slice(3)); } catch (e) {
+      try { await rpc('delete_family', { fid: f.id }); } catch (e2) { /* 무시 */ }
+      throw new Error('서버 설정이 최신이 아니에요. 만든 사람에게 알려 주세요. (SQL 업데이트 필요)');
+    }
     lsSet('tp-sec-' + f.id, sec);
     return Object.assign({}, f, { enc: true, name: fname });
   }
@@ -1429,14 +1465,87 @@ const Cloud = (() => {
       const names = ((await r.json()) || []).map((x) => id + '/' + x.name);
       if (names.length) await api('/storage/v1/object/photos', { method: 'DELETE', headers: JSONH, body: JSON.stringify({ prefixes: names }) });
     }
+    try { await wipeBucket('shares', id); } catch (e) { /* 무시 */ }
     await rpc('delete_family', { fid: id });
     lsSet('tp-sec-' + id, null); Crypt.forget(id); lsSet('tp-fam', null); fam = null; cache = { visits: [], parks: [] };
+  }
+  async function renameFamily(fname, my) {
+    const sec = secOf(fam.id); if (!sec) throw lockedErr();
+    const key = await Crypt.key(fam.id, sec);
+    if (fname) await rpc('rename_family', { fid: fam.id, newname: await encName(key, fname) });
+    if (my) {
+      const r = await api('/rest/v1/members?family_id=eq.' + fam.id + '&user_id=eq.' + sess.user.id, { method: 'PATCH', headers: Object.assign({ Prefer: 'return=minimal' }, JSONH), body: JSON.stringify({ name: await encName(key, my) }) });
+      if (!r.ok) throw new Error('이름을 바꾸지 못했어요.');
+      fam.me = my; name = my; lsSet('tp-name', my);
+    }
+    if (fname) fam.name = fname;
+    fam.broken = false;
+  }
+  async function deleteAccount() {
+    const fs = await families();
+    for (const f of fs) {
+      const r = await api('/rest/v1/members?select=user_id&family_id=eq.' + f.id);
+      const n = r.ok ? (await r.json()).length : 2;
+      if (n <= 1) { fam = f; await deleteFamily(); }
+    }
+    await rpc('delete_account', {});
+    fs.forEach((f) => { lsSet('tp-sec-' + f.id, null); Crypt.forget(f.id); });
+    lsSet('tp-fam', null); logout();
+  }
+  const b64u = (u8) => { let t = ''; for (let i = 0; i < u8.length; i++) t += String.fromCharCode(u8[i]); return btoa(t).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+  const unb64u = (t) => Uint8Array.from(atob(t.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+  const rawKey = (raw) => crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
+  const shareFile = (fid, sid, i) => fid + '/' + sid + '-' + i + '.bin';
+  async function wipeBucket(bucket, id) {
+    const r = await api('/storage/v1/object/list/' + bucket, { method: 'POST', headers: JSONH, body: JSON.stringify({ prefix: id + '/', limit: 1000 }) });
+    if (!r.ok) return;
+    const names = ((await r.json()) || []).map((x) => id + '/' + x.name);
+    if (names.length) await api('/storage/v1/object/' + bucket, { method: 'DELETE', headers: JSONH, body: JSON.stringify({ prefixes: names }) });
+  }
+  async function createShare(visitId, snap, blobs, home) {
+    const sid = b64u(crypto.getRandomValues(new Uint8Array(12))), raw = crypto.getRandomValues(new Uint8Array(32)), key = await rawKey(raw);
+    for (let i = 0; i < blobs.length; i++) {
+      const body = new Blob([await Crypt.encBytes(key, await blobs[i].arrayBuffer())], { type: 'application/octet-stream' });
+      const up = await api('/storage/v1/object/shares/' + shareFile(fam.id, sid, i), { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'x-upsert': 'true' }, body });
+      if (!up.ok) throw new Error('shares upload');
+    }
+    const r = await api('/rest/v1/shares', { method: 'POST', headers: Object.assign({ Prefer: 'return=minimal' }, JSONH), body: JSON.stringify({ id: sid, family_id: fam.id, visit_id: visitId, n: blobs.length, data: await Crypt.encJSON(key, snap) }) });
+    if (!r.ok) throw new Error('shares save');
+    return home + '?s=' + sid + '#' + b64u(raw);
+  }
+  async function sharesOf(visitId) {
+    const r = await api('/rest/v1/shares?select=id,n&family_id=eq.' + fam.id + '&visit_id=eq.' + encodeURIComponent(visitId));
+    if (!r.ok) throw new Error('shares');
+    return (await r.json()) || [];
+  }
+  async function deleteShares(rows) {
+    for (const x of rows) {
+      const files = Array.from({ length: x.n || 0 }, (_, i) => shareFile(fam.id, x.id, i));
+      if (files.length) await api('/storage/v1/object/shares', { method: 'DELETE', headers: JSONH, body: JSON.stringify({ prefixes: files }) });
+      const r = await api('/rest/v1/shares?id=eq.' + encodeURIComponent(x.id) + '&family_id=eq.' + fam.id, { method: 'DELETE' });
+      if (!r.ok) throw new Error('unshare');
+    }
+  }
+  async function openShare(sid, keyTxt) {
+    const r = await raw('/rest/v1/rpc/get_share', { method: 'POST', anon: true, headers: JSONH, body: JSON.stringify({ sid }) });
+    const j = await jsonOf(r);
+    if (!r.ok) throw new Error('share');
+    const row = Array.isArray(j) ? j[0] : j;
+    if (!row || !row.data) throw Object.assign(new Error('gone'), { gone: true });
+    const key = await rawKey(unb64u(keyTxt));
+    const snap = await Crypt.decJSON(key, row.data);
+    return { snap, n: row.n || 0, photo: async (i) => {
+      const f = await fetch(base() + '/storage/v1/object/public/shares/' + shareFile(row.fid, sid, i)); if (!f.ok) return null;
+      return URL.createObjectURL(new Blob([await Crypt.decBytes(key, await f.arrayBuffer())], { type: 'image/jpeg' }));
+    } };
   }
   function setSecret(sec) { if (!Crypt.valid(sec)) return false; lsSet('tp-sec-' + fam.id, sec); Crypt.forget(fam.id); return true; }
   async function unlockNames() {
     if (!fam || !fam.rawName) return;
-    fam.name = await decName(fam.id, fam.rawName, '🔒 스티커북');
-    if (fam.rawMe) { fam.me = await decName(fam.id, fam.rawMe, fam.me || ''); if (fam.me) name = fam.me; }
+    const bad = { v: false };
+    fam.name = await decName(fam.id, fam.rawName, '🔒 스티커북', bad);
+    if (fam.rawMe) { fam.me = await decName(fam.id, fam.rawMe, fam.me || '', bad); if (fam.me) name = fam.me; }
+    fam.broken = bad.v;
   }
   function clearSecret() { lsSet('tp-sec-' + fam.id, null); Crypt.forget(fam.id); }
   const hasKey = () => !fam || !fam.enc || !!secOf(fam.id);
@@ -1464,7 +1573,7 @@ const Cloud = (() => {
     const r = await api('/rest/v1/members?select=name&family_id=eq.' + fam.id + '&order=joined_at.asc');
     if (!r.ok) return [];
     const rows = await r.json(), out = [];
-    for (const x of rows) out.push(await decName(fam.id, x.name, '가족'));
+    for (const x of rows) out.push(await decName(fam.id, x.name, '(이름을 읽을 수 없어요)'));
     return out;
   }
   async function sign(paths) {
@@ -1507,7 +1616,7 @@ const Cloud = (() => {
   }
   const kindOf = (n) => (n === 'visits' ? 'visit' : 'park');
   return {
-    on, restore, auth, logout, unlockNames, families, createFamily, joinFamily, useFamily, members, load, deleteFamily, hasKey, invite, setSecret, clearSecret,
+    on, restore, auth, logout, createShare, sharesOf, deleteShares, openShare, unlockNames, renameFamily, deleteAccount, families, createFamily, joinFamily, useFamily, members, load, deleteFamily, hasKey, invite, setSecret, clearSecret,
     picUrl: (path) => (fam && fam.enc ? dCache.get(path) || null : urls.get(path) || null),
     set onPhotos(fn) { onPhotos = fn; },
     get name() { return name; }, get fam() { return fam; }, get user() { return sess && sess.user; }, get hasSess() { return !!sess; },
@@ -1552,6 +1661,7 @@ const Cloud = (() => {
       const ps = (rec && rec.photos ? rec.photos.map((x) => x && x.path).filter(Boolean) : []);
       if (ps.length) api('/storage/v1/object/photos', { method: 'DELETE', headers: JSONH, body: JSON.stringify({ prefixes: ps }) }).catch(() => {});
       known.delete(id);
+      if (n === 'visits') sharesOf(id).then(deleteShares).catch(() => {});
     }
   };
 })();
@@ -2099,133 +2209,101 @@ function reviewSheetHTML(v) {
     reviewFields(v) +
     '<div class="actions"><button type="button" class="ghost" data-act="close">그만두기</button><button type="submit" class="primary" id="e-save">저장</button></div></form></div></div>';
 }
-/* ---------- 기록 공유하기 (스티커 내용을 친구에게) ---------- */
-const SHARE_FONT = "'Jua','Apple SD Gothic Neo','Malgun Gothic','Noto Sans CJK KR',sans-serif";
-function wrapLines(ctx, text, maxW, maxLines) {
-  const out = []; let line = '';
-  for (const ch of String(text)) {
-    if (ch === '\n') { out.push(line); line = ''; continue; }
-    if (ctx.measureText(line + ch).width > maxW) { out.push(line); line = ch === ' ' ? '' : ch; } else line += ch;
-  }
-  if (line) out.push(line);
-  if (out.length > maxLines) { out.length = maxLines; out[maxLines - 1] = out[maxLines - 1].replace(/.?$/, '…'); }
-  return out;
+/* ---------- 기록 공유하기 (링크) ---------- */
+function shareSnapshot(v, p, o) {
+  const snap = { v: 1, park: { name: p.name, region: p.region || '', label: placeLabel(p), color: p.color, motif: p.motif }, date: v.date,
+    title: v.title || '', rating: v.rating || 0, scary: v.scary || 0, again: v.again || '', fav: v.fav || '', food: v.food || '', next: v.next || '' };
+  if (o.memo && v.memo) snap.memo = v.memo;
+  if (o.who && v.who && v.who.length) snap.who = v.who.slice();
+  return snap;
 }
-function shareRows(v, o) {
-  const r = [];
-  if (v.scary) r.push(['얼마나 무서웠어요?', SCARY_TXT[v.scary]]);
-  if (v.again) r.push(['또 가고 싶어요?', AGAIN_TXT[v.again]]);
-  if (v.fav) r.push(['제일 재미있었던 건', v.fav]);
-  if (v.food) r.push(['맛있었던 것', v.food]);
-  if (v.next) r.push(['다음에 꼭 해 볼 것', v.next]);
-  if (o.who && v.who && v.who.length) r.push(['함께 간 사람', v.who.join(', ')]);
-  return r;
-}
-function visitShareText(v, p, o) {
-  const L = ['🎢 ' + p.name + ' 다녀왔어요! (' + fmtKoLong(v.date) + ')'];
-  if (v.title) L.push('“' + v.title + '”');
-  if (v.rating) L.push('재미 ' + '★'.repeat(v.rating) + '☆'.repeat(5 - v.rating) + ' ' + v.rating + '/5');
-  shareRows(v, o).forEach((x) => L.push('· ' + x[0] + ' ' + x[1]));
-  if (o.memo && v.memo) L.push('\n' + v.memo);
-  L.push('\n놀이공원 스티커북으로 기록했어요 👉 ' + shareURL());
-  return L.join('\n');
-}
-async function loadImg(src) { return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; }); }
-async function visitShareImage(v, p, o) {
-  try { await document.fonts.load('40px Jua'); } catch (e) { /* 무시 */ }
-  const svg = stickerSVG(p).replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ');
-  let stk = null, ph = null;
-  try { stk = await loadImg('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)); } catch (e) { /* 무시 */ }
-  if (o.photo) {
-    const u = photoURLs(v)[0];
-    if (u) { try { const b = await (await fetch(u)).blob(); ph = await createImageBitmap(b); } catch (e) { ph = null; } }
-  }
-  const W = 1080, PX = 96, rows = shareRows(v, o);
-  const draw = (ctx, dry) => {
-    let y = 0;
-    const set = (size, color, align) => { ctx.font = '400 ' + size + 'px ' + SHARE_FONT; ctx.fillStyle = color; ctx.textAlign = align || 'center'; ctx.textBaseline = 'top'; };
-    const text = (t, size, color, lh, maxLines, align) => {
-      set(size, color, align); const lines = wrapLines(ctx, t, W - PX * 2, maxLines || 2);
-      lines.forEach((ln) => { if (!dry) ctx.fillText(ln, align === 'left' ? PX : W / 2, y); y += lh; });
-    };
-    y = 110; text('놀이공원 스티커북', 34, '#5A6490', 44, 1);
-    y += 14; if (!dry && stk) ctx.drawImage(stk, W / 2 - 120, y, 240, 240); y += 270;
-    text(p.name, 68, '#1E2A5E', 82, 2);
-    text([placeLabel(p), p.region].filter(Boolean).join(' · '), 32, '#5A6490', 44, 1);
-    text(fmtKoLong(v.date), 32, '#5A6490', 48, 1);
-    if (ph) {
-      y += 24; const pw = W - PX * 2, phh = 560;
-      if (!dry) {
-        ctx.save(); ctx.beginPath(); ctx.roundRect(PX, y, pw, phh, 28); ctx.clip();
-        const s = Math.max(pw / ph.width, phh / ph.height), dw = ph.width * s, dh = ph.height * s;
-        ctx.drawImage(ph, PX + (pw - dw) / 2, y + (phh - dh) / 2, dw, dh); ctx.restore();
-        ctx.lineWidth = 8; ctx.strokeStyle = '#1E2A5E'; ctx.beginPath(); ctx.roundRect(PX, y, pw, phh, 28); ctx.stroke();
-      }
-      y += phh + 16;
-    }
-    y += 24;
-    if (v.title) { text('“' + v.title + '”', 52, '#1E2A5E', 68, 2); y += 6; }
-    if (v.rating) { text('★'.repeat(v.rating) + '☆'.repeat(5 - v.rating), 76, '#F5A623', 96, 1); }
-    y += 10;
-    rows.forEach((x) => { text(x[0], 28, '#E0457B', 38, 1, 'left'); text(x[1], 40, '#1E2A5E', 54, 2, 'left'); y += 14; });
-    if (o.memo && v.memo) { y += 4; text(v.memo, 38, '#33406F', 54, 5, 'left'); }
-    y += 40; text('나도 스티커북 만들기 👉 ' + shareURL().replace(/^https?:\/\//, ''), 28, '#5A6490', 40, 1);
-    return y + 60;
-  };
-  const sc = document.createElement('canvas'); sc.width = W; sc.height = 10;
-  const H = Math.max(1080, Math.round(draw(sc.getContext('2d'), true)));
-  const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const ctx = cv.getContext('2d');
-  const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#BFE6FF'); g.addColorStop(1, '#FFF3C4'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#1E2A5E'; ctx.lineWidth = 8; ctx.beginPath(); ctx.roundRect(40, 40, W - 80, H - 80, 48); ctx.fill(); ctx.stroke();
-  draw(ctx, false);
-  return new Promise((res) => cv.toBlob((b) => res(b), 'image/png'));
+async function photoBlob(it) {
+  if (it instanceof Blob) return it;
+  const u = picURL(it); if (!u) throw new Error('photo');
+  return (await fetch(u)).blob();
 }
 function shareVHTML(s) {
   const v = S.visits.find((x) => x.id === s.visitId), p = v && S.byId.get(v.parkId); if (!v || !p) return '';
-  const hasPhoto = photoURLs(v).length > 0, hasMemo = !!v.memo, hasWho = !!(v.who && v.who.length);
+  const us = photoURLs(v), hasMemo = !!v.memo, hasWho = !!(v.who && v.who.length);
   const tg = (k, label) => '<button type="button" class="btn ghost sm" data-act="sv-opt" data-k="' + k + '" aria-pressed="' + (!!s.opt[k]) + '">' + label + '</button>';
+  const sel = s.opt.pics;
+  const pics = us.length ? '<div class="field"><span class="flabel">공유할 사진 <small>' + sel.size + ' / ' + us.length + '장 · 눌러서 넣고 빼요</small></span><div class="svpics">' +
+    us.map((u, i) => '<button type="button" class="svpic" data-act="sv-pic" data-i="' + i + '" aria-pressed="' + sel.has(i) + '" aria-label="사진 ' + (i + 1) + '"><img src="' + u + '" alt=""></button>').join('') + '</div></div>' : '';
+  const st = s.status || {};
+  const live = s.live == null ? '' : s.live.length ? '<div class="who"><p class="note"><b>이 기록은 링크로 공유 중이에요 (' + s.live.length + '개).</b> 공유를 끊으면 보낸 링크가 더 이상 열리지 않아요.</p><button type="button" class="link danger" data-act="sv-unshare">공유 끊기</button></div>' : '';
   return '<div class="layer" data-act="close-layer"><div class="panel" role="dialog" aria-modal="true" aria-labelledby="sv-t">' +
-    '<div class="dhead"><div><h2 id="sv-t">' + esc(p.name) + ' 공유하기</h2><p>카카오톡·인스타 등으로 이 기록을 소개해요</p></div><button class="x" data-act="close">닫기</button></div>' +
-    '<img id="sv-img" class="svimg" alt="공유 카드 미리보기" style="width:100%;height:auto;max-height:60vh;object-fit:contain;border-radius:18px;border:3px solid var(--edge);background:#fff;min-height:120px">' +
-    '<p class="note">넣고 뺄 것을 골라 보세요. 가족 이름과 계정 정보는 들어가지 않아요.</p>' +
-    '<div class="chips" style="gap:8px;display:flex;flex-wrap:wrap">' + (hasPhoto ? tg('photo', '사진') : '') + (hasMemo ? tg('memo', '한 줄 메모') : '') + (hasWho ? tg('who', '함께 간 사람') : '') + '</div>' +
-    '<div class="actions" style="flex-direction:column;align-items:stretch">' +
-    '<button type="button" class="primary" data-act="sv-send" data-m="image">이미지로 공유</button>' +
-    '<button type="button" class="btn ghost" data-act="sv-send" data-m="text">글로 공유</button>' +
-    '<button type="button" class="btn ghost" data-act="sv-copy">글 복사</button>' +
-    '<button type="button" class="btn ghost" data-act="sv-save">이미지 저장</button></div></div></div>';
+    '<div class="dhead"><div><h2 id="sv-t">기록 공유하기</h2><p>' + esc(p.name) + ' · ' + esc(fmtKoShort(v.date)) + '</p></div><button class="x" data-act="close">닫기</button></div>' +
+    '<p class="note">링크를 받은 사람은 로그인 없이 이 기록 하나만 볼 수 있어요.</p>' + pics +
+    ((hasMemo || hasWho) ? '<div class="field"><span class="flabel">같이 보여 줄 것</span><div class="svopts">' + (hasMemo ? tg('memo', '한 줄 메모') : '') + (hasWho ? tg('who', '함께 간 사람') : '') + '</div></div>' : '') +
+    '<p class="note">별점과 평가는 함께 보여요. 가족 이름, 기록한 사람, 계정 정보는 들어가지 않아요.</p>' +
+    (st.url ? '<div class="who"><span class="flabel">공유 링크</span><p class="code sm" style="font-size:14px;overflow-wrap:anywhere">' + esc(st.url) + '</p><button type="button" class="btn ghost sm" data-act="sv-copylink">링크 복사</button></div>' : '') +
+    '<div class="actions" style="flex-direction:column;align-items:stretch"><button type="button" class="primary" data-act="sv-link"' + (st.busy ? ' disabled' : '') + '>' +
+    (st.busy ? '링크 만드는 중…' : st.url ? '다시 보내기' : '링크 만들어 공유하기') + '</button></div>' + live + '</div></div>';
 }
-let svTok = 0;
-async function updateSV() {
-  const s = S.sheet; if (!s || s.type !== 'sharev') return;
-  const v = S.visits.find((x) => x.id === s.visitId), p = v && S.byId.get(v.parkId); if (!v || !p) return;
-  const tok = ++svTok;
-  try {
-    const b = await visitShareImage(v, p, s.opt); if (tok !== svTok || !S.sheet || S.sheet.type !== 'sharev') return;
-    s.blob = b; const img = $('#sv-img'); if (img) { if (s.url) URL.revokeObjectURL(s.url); s.url = URL.createObjectURL(b); img.src = s.url; }
-  } catch (e) { /* 무시 */ }
+async function svRefreshLive() {
+  const s = S.sheet; if (!s || s.type !== 'sharev' || DB !== Cloud) return;
+  try { s.live = await Cloud.sharesOf(s.visitId); } catch (e) { s.live = null; }
+  if (S.sheet === s) renderSheet();
 }
-async function svSend(mode) {
+async function svSendLink(url, p) {
+  const data = { title: p.name + ' 다녀왔어요!', text: '우리 가족 놀이공원 스티커예요 ⭐ ' + p.name, url };
+  if (navigator.share) { try { await navigator.share(data); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
+  try { await navigator.clipboard.writeText(url); toast('링크를 복사했어요. 카카오톡이나 인스타에 붙여넣어 보내세요.'); } catch (e) { toast('아래 링크를 길게 눌러 복사해 주세요.'); }
+}
+async function svLink() {
   const s = S.sheet, v = S.visits.find((x) => x.id === s.visitId), p = v && S.byId.get(v.parkId); if (!v || !p) return;
-  const text = visitShareText(v, p, s.opt);
+  if (DB !== Cloud) { toast('링크 공유는 로그인해서 쓰는 버전에서만 돼요.'); return; }
+  if (s.status && s.status.url) { svSendLink(s.status.url, p); return; }
+  s.status = { busy: true }; renderSheet();
   try {
-    if (mode === 'image') {
-      if (!s.blob) await updateSV();
-      const file = new File([s.blob], '스티커-' + p.name + '.png', { type: 'image/png' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: p.name, text }); return; }
-      svDownload(); toast('이미지를 저장했어요. 카카오톡이나 인스타에서 사진으로 보내세요.'); return;
-    }
-    if (navigator.share) { await navigator.share({ title: p.name, text }); return; }
-    svCopy();
-  } catch (e) { if (!(e && e.name === 'AbortError')) toast('공유가 안 돼요. 저장하거나 복사해서 보내 주세요.'); }
+    const items = picsOf(v).filter((_, i) => s.opt.pics.has(i));
+    const blobs = []; for (const it of items) blobs.push(await photoBlob(it));
+    const url = await Cloud.createShare(v.id, shareSnapshot(v, p, s.opt), blobs, shareURL());
+    if (S.sheet !== s) return;
+    s.status = { url }; renderSheet(); svRefreshLive();
+    svSendLink(url, p);
+  } catch (e) {
+    s.status = {}; if (S.sheet === s) renderSheet();
+    toast(/shares|get_share|relation|bucket/i.test(String(e && e.message)) ? '서버 설정(SQL)을 먼저 업데이트해 주세요.' : '링크를 만들지 못했어요. 인터넷을 확인하고 다시 해 볼까요?');
+  }
 }
-function svDownload() {
-  const s = S.sheet; if (!s || !s.blob) return;
-  const a = document.createElement('a'); a.href = URL.createObjectURL(s.blob); a.download = 'sticker.png'; document.body.appendChild(a); a.click(); a.remove();
-}
-function svCopy() {
-  const s = S.sheet, v = S.visits.find((x) => x.id === s.visitId), p = v && S.byId.get(v.parkId); if (!v || !p) return;
-  try { navigator.clipboard.writeText(visitShareText(v, p, s.opt)).then(() => toast('복사했어요. 붙여넣어 보내세요.'), () => toast('복사가 안 돼요.')); } catch (e) { toast('복사가 안 돼요.'); }
+/* 공유 페이지 보기 (로그인 없이) */
+async function showShare(sid, keyTxt) {
+  document.querySelector('.app').hidden = true; const fab = $('#fab'); if (fab) fab.hidden = true;
+  const box = document.createElement('div'); box.className = 'svw'; box.id = 'svw'; document.body.prepend(box);
+  const home = shareURL();
+  const shell = (inner) => '<div class="svw-in"><p class="svw-brand">놀이공원 스티커북</p>' + inner +
+    '<a class="btn primary svw-cta" href="' + esc(home) + '">나도 스티커북 만들기</a><p class="note svw-foot">아이와 다녀온 놀이공원을 지도 위에 스티커로 모으는 가족 앱이에요. 이 페이지에는 공유한 사람이 고른 기록만 보여요.</p></div>';
+  box.innerHTML = shell('<div class="svcard"><p class="note">불러오는 중이에요…</p></div>');
+  let r;
+  try { r = await Cloud.openShare(sid, keyTxt); } catch (e) {
+    box.innerHTML = shell('<div class="svcard"><h1>' + (e && e.gone ? '공유가 끝난 기록이에요' : '기록을 열 수 없어요') + '</h1><p class="note">' + (e && e.gone ? '공유한 사람이 공유를 끊었어요.' : '링크가 끝까지 복사됐는지 확인해 주세요.') + '</p></div>');
+    return;
+  }
+  const d = r.snap, p = Object.assign({ tags: '' }, d.park);
+  const rows = [];
+  if (d.scary) rows.push(['얼마나 무서웠어요?', SCARY_TXT[d.scary]]);
+  if (d.again) rows.push(['또 가고 싶어요?', AGAIN_TXT[d.again]]);
+  if (d.fav) rows.push(['제일 재미있었던 건', d.fav]);
+  if (d.food) rows.push(['맛있었던 것', d.food]);
+  if (d.next) rows.push(['다음에 꼭 해 볼 것', d.next]);
+  if (d.who && d.who.length) rows.push(['함께 간 사람', d.who.join(', ')]);
+  const n = r.n;
+  const car = n ? '<div class="car"><div class="track" id="car-t">' + Array.from({ length: n }, (_, i) => '<div class="slide"><img id="car-' + i + '" alt="사진 ' + (i + 1) + '"></div>').join('') + '</div>' +
+    (n > 1 ? '<button type="button" class="cnav l" id="car-l" aria-label="이전 사진">‹</button><button type="button" class="cnav r" id="car-r" aria-label="다음 사진">›</button><span class="ccount" id="car-c">1 / ' + n + '</span>' : '') + '</div>' : '';
+  box.innerHTML = shell('<div class="svcard"><div class="svstk">' + stickerSVG(p) + '</div><h1>' + esc(p.name) + '</h1>' +
+    '<p class="svsub">' + esc([p.label, p.region].filter(Boolean).join(' · ')) + '</p><p class="svsub">' + esc(fmtKoLong(d.date)) + ' 다녀왔어요</p>' + car +
+    (d.title ? '<p class="svtitle">“' + esc(d.title) + '”</p>' : '') + (d.rating ? '<p class="svstars" aria-label="별 ' + d.rating + '개">' + '★'.repeat(d.rating) + '<span>' + '★'.repeat(5 - d.rating) + '</span></p>' : '') +
+    (rows.length ? '<dl class="svrows">' + rows.map((x) => '<dt>' + esc(x[0]) + '</dt><dd>' + esc(x[1]) + '</dd>').join('') + '</dl>' : '') +
+    (d.memo ? '<p class="svmemo">' + esc(d.memo) + '</p>' : '') + '</div>');
+  document.title = p.name + ' · 놀이공원 스티커북';
+  if (n) {
+    const t = $('#car-t'), c = $('#car-c');
+    const go = (k) => t.scrollBy({ left: k * t.clientWidth, behavior: 'smooth' });
+    if ($('#car-l')) { $('#car-l').onclick = () => go(-1); $('#car-r').onclick = () => go(1); }
+    t.addEventListener('scroll', () => { if (c) c.textContent = (Math.round(t.scrollLeft / t.clientWidth) + 1) + ' / ' + n; }, { passive: true });
+    for (let i = 0; i < n; i++) r.photo(i).then((u) => { const im = $('#car-' + i); if (im && u) im.src = u; }).catch(() => {});
+  }
 }
 
 const APP_URL = 'https://jj21477.github.io/themepark-stickers/';
@@ -2258,10 +2336,14 @@ function acctHTML() {
     '<button type="button" class="btn ghost sm" data-act="copy-code">코드 복사</button>' +
     '<p class="note">이 코드를 알려 주면 같은 스티커북에 들어올 수 있어요. 아이 폰에서는 아이 이름으로 가입한 뒤 이 코드를 입력하면 돼요.</p>' +
     (f.enc ? '<p class="note"><b>이 스티커북은 암호화되어 있어요.</b> 기록과 사진은 이 코드를 아는 가족만 볼 수 있고, 관리자도 볼 수 없어요. 코드는 서버에 저장되지 않으니 꼭 따로 보관해 주세요. 잃어버리면 복구할 수 없어요.</p>' : '<p class="note">이 스티커북은 암호화 없이 저장되어 있어요.</p>') + '</div>' +
+    (f.broken ? '<div class="who"><span class="flabel">이름을 다시 정해 주세요</span><p class="note">이름이 서버에서 잘려서 읽을 수 없어요. 기록은 괜찮아요. 아래에 다시 입력해 주세요.</p>' +
+      '<input type="text" id="rn-fam" maxlength="40" placeholder="스티커북 이름 (예: 서훈네)" aria-label="스티커북 이름"><input type="text" id="rn-me" maxlength="20" placeholder="내 이름 (예: 서훈 아빠)" aria-label="내 이름" value="' + esc(Cloud.name || '') + '">' +
+      '<button type="button" class="btn sm" data-act="rename">이름 저장</button></div>' : '') +
     '<div class="who"><span class="flabel">함께 쓰는 사람</span><ul>' + (S.members || []).map((m) => '<li>' + esc(m) + '</li>').join('') + '</ul></div>' +
     ((S.myFams || []).length > 1 ? '<div class="who"><span class="flabel">내 스티커북</span>' + S.myFams.map((x) => '<button type="button" class="btn ghost sm" data-act="fam-switch" data-id="' + esc(x.id) + '"' + (x.id === f.id ? ' disabled' : '') + '>' + esc(x.name) + (x.id === f.id ? ' (지금 보는 중)' : '') + (x.enc ? ' 🔒' : '') + '</button>').join('') + '</div>' : '') +
     '<button type="button" class="btn ghost" data-act="new-fam">새 스티커북 만들기 · 다른 코드로 들어가기</button>' +
     '<button type="button" class="link danger" data-act="fam-del">' + (S.famDel ? '정말 지울까요? 모든 가족의 기록과 사진이 지워져요. 한 번 더 누르면 지워져요' : '이 스티커북 지우기') + '</button>' +
+    '<button type="button" class="link danger" data-act="acct-del">' + (S.acctDel ? '정말 탈퇴할까요? 나만 쓰는 스티커북은 기록과 사진이 모두 지워지고, 함께 쓰는 스티커북은 나만 빠져요. 한 번 더 누르면 탈퇴해요' : '회원 탈퇴 (계정 지우기)') + '</button>' +
     '<button type="button" class="ghost" data-act="logout">로그아웃</button></div></div>';
 }
 function renderSheet() {
@@ -2275,7 +2357,7 @@ function renderSheet() {
   } else if (s.type === 'review') {
     const v = S.visits.find((x) => x.id === s.visitId); if (!v) { closeSheet(); return; }
     host.innerHTML = reviewSheetHTML(v);
-  } else if (s.type === 'sharev') { host.innerHTML = shareVHTML(s); updateSV(); }
+  } else if (s.type === 'sharev') host.innerHTML = shareVHTML(s);
   else if (s.type === 'share') host.innerHTML = shareHTML();
   else if (s.type === 'acct') host.innerHTML = acctHTML();
   else host.innerHTML = formHTML(s.parkId);
@@ -2381,15 +2463,25 @@ document.addEventListener('click', (e) => {
       Cloud.members().then((m) => { S.members = m; if (S.sheet && S.sheet.type === 'acct') renderSheet(); });
       Cloud.families().then((fs) => { S.myFams = fs; if (S.sheet && S.sheet.type === 'acct') renderSheet(); }).catch(() => {});
       break;
+    case 'rename': (async () => {
+      try { await Cloud.renameFamily(($('#rn-fam').value || '').trim(), ($('#rn-me').value || '').trim()); toast('이름을 다시 저장했어요.'); S.members = await Cloud.members(); S.myFams = await Cloud.families(); renderSheet(); const b = $('#acct'); b.textContent = Cloud.name + ' · ' + Cloud.fam.name; }
+      catch (err) { toast(err && err.message ? (/rename_family|function/.test(err.message) ? '서버 설정(SQL)을 먼저 업데이트해 주세요.' : err.message) : '이름을 바꾸지 못했어요.'); }
+    })(); break;
     case 'share': shareApp(); break;
     case 'share-visit': {
       const v = S.visits.find((x) => x.id === id); if (!v) break;
-      S.sheet = null; openSheet({ type: 'sharev', visitId: id, opt: { photo: false, memo: true, who: false } }); break;
+      S.sheet = null; openSheet({ type: 'sharev', visitId: id, opt: { memo: true, who: false, pics: new Set(picsOf(v).map((_, k) => k)) }, live: null });
+      svRefreshLive(); break;
     }
-    case 'sv-opt': { const k = t.getAttribute('data-k'); S.sheet.opt[k] = !S.sheet.opt[k]; t.setAttribute('aria-pressed', String(!!S.sheet.opt[k])); updateSV(); break; }
-    case 'sv-send': svSend(t.getAttribute('data-m')); break;
-    case 'sv-copy': svCopy(); break;
-    case 'sv-save': (async () => { if (!S.sheet.blob) await updateSV(); svDownload(); })(); break;
+    case 'sv-opt': { const k = t.getAttribute('data-k'); S.sheet.opt[k] = !S.sheet.opt[k]; S.sheet.status = null; renderSheet(); break; }
+    case 'sv-pic': { const k = +t.getAttribute('data-i'), ps = S.sheet.opt.pics; if (ps.has(k)) ps.delete(k); else ps.add(k); S.sheet.status = null; renderSheet(); break; }
+    case 'sv-link': svLink(); break;
+    case 'sv-copylink': try { navigator.clipboard.writeText(S.sheet.status.url).then(() => toast('링크를 복사했어요.'), () => toast('링크를 길게 눌러 복사해 주세요.')); } catch (err) { toast('링크를 길게 눌러 복사해 주세요.'); } break;
+    case 'sv-unshare': {
+      const s2 = S.sheet;
+      Cloud.deleteShares(s2.live || []).then(() => { toast('공유를 끊었어요. 보낸 링크는 이제 열리지 않아요.'); s2.status = null; svRefreshLive(); }).catch(() => toast('공유를 끊지 못했어요. 다시 해 볼까요?'));
+      break;
+    }
     case 'share-copy': {
       const txt = SHARE_TEXT + '\n' + shareURL();
       try { navigator.clipboard.writeText(txt).then(() => toast('복사했어요. 카카오톡이나 인스타에 붙여넣어 보내세요.'), () => toast('복사가 안 돼요. 직접 적어 주세요.')); } catch (err) { toast('복사가 안 돼요. 직접 적어 주세요.'); }
@@ -2401,6 +2493,15 @@ document.addEventListener('click', (e) => {
     case 'logout':
       stopPoll(); Cloud.logout(); closeSheet(); S.visits = []; S.parks = []; S.loaded = false; rebuild(); renderAll();
       $('#acct').hidden = true; showAuth('login'); break;
+    case 'acct-del':
+      if (S.acctDel) {
+        S.acctDel = false; clearTimeout(confirmTimer); stopPoll();
+        Cloud.deleteAccount().then(() => {
+          closeSheet(); S.visits = []; S.parks = []; S.loaded = false; rebuild(); renderAll(); $('#acct').hidden = true;
+          showAuth('signup', ''); toast('탈퇴했어요. 같은 이메일로 다시 가입할 수 있어요.');
+        }).catch((err) => { toast(/delete_account|function/.test(String(err && err.message)) ? '서버 설정(SQL)을 먼저 업데이트해 주세요.' : '탈퇴하지 못했어요. 다시 눌러 볼까요?'); startPoll(); });
+      } else { S.acctDel = true; renderSheet(); clearTimeout(confirmTimer); confirmTimer = setTimeout(() => { S.acctDel = false; if (S.sheet && S.sheet.type === 'acct') renderSheet(); }, 6000); }
+      break;
     case 'fam-del':
       if (S.famDel) {
         S.famDel = false; clearTimeout(confirmTimer); stopPoll();
@@ -2649,6 +2750,7 @@ async function bootCloud() {
 
 /* ---------- 시작 ---------- */
 async function init() {
+  try { const sid = new URLSearchParams(location.search).get('s'); if (sid) { await showShare(sid, location.hash.replace(/^#/, '')); return; } } catch (e) { /* 무시 */ }
   $('#deco').innerHTML = ['lotteworld-seoul', 'everland', 'wb-studio-london'].map((id) => {
     const p = CATALOG.find((x) => x.id === id);
     return '<span class="sticker" style="--rot:' + rotFor(id, 8) + 'deg">' + stickerSVG(p) + '</span>';
